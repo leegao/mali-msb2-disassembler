@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdlib.h>
 #include <string.h>
 #include <assert.h>
 #include "disassemble.h"
@@ -11,10 +12,33 @@
 #define BIT(b)          (1ull << (b))
 #define MASK(count)    ((1ull << (count)) - 1)
 #define SEXT(b, count) ((b ^ BIT(count - 1)) - BIT(count - 1))
-#define UNUSED         __attribute__((unused))
+#define UNUSED          __attribute__((unused))
 
 #define VA_SRC_UNIFORM_TYPE 0x2
 #define VA_SRC_IMM_TYPE     0x3
+
+#define MAX_GPR_REGS 64
+#define MAX_STACK_SLOTS 256
+
+typedef struct {
+   uint64_t raw_word;
+   uint64_t gen_mask;
+   uint64_t def_mask;
+   int32_t  stack_slot;
+   bool     is_store;
+   bool     is_load;
+   bool     is_reconverge;
+   bool     is_branch;
+   int32_t  branch_target_idx;
+
+   uint32_t num_incoming_branches;
+   uint32_t incoming_branch_offsets[16];
+
+   uint64_t live_regs_in;
+   uint64_t live_regs_out;
+   uint8_t  live_stack_in[MAX_STACK_SLOTS];
+   uint8_t  live_stack_out[MAX_STACK_SLOTS];
+} AnalyzedInstruction;
 
 UNUSED static const char *valhall_flow[] = {
    "",
@@ -620,8 +644,53 @@ static const uint32_t va_immediates[32] = {
    0x42480000,
 };
 
+static void
+va_print_live_set_ranges(FILE *fp, const char *prefix, uint64_t mask)
+{
+   uint32_t total_vregs = 0;
+   fprintf(fp, "// %s: ", prefix);
+
+   if (mask == 0) {
+      fprintf(fp, "none (0 vregs) */\n");
+      return;
+   }
+
+   bool first_range = true;
+   int start = -1;
+   int end = -1;
+
+   for (int r = 0; r <= MAX_GPR_REGS; r++) {
+      bool is_set = (r < MAX_GPR_REGS) && ((mask & BIT(r)) != 0);
+
+      if (is_set) {
+         total_vregs++;
+         if (start == -1) {
+            start = r;
+         }
+         end = r;
+      } else {
+         if (start != -1) {
+            if (!first_range) {
+               fprintf(fp, ",");
+            }
+            if (start == end) {
+               fprintf(fp, "r%d", start);
+            } else {
+               fprintf(fp, "r%d-r%d", start, end);
+            }
+            first_range = false;
+            start = -1;
+            end = -1;
+         }
+      }
+   }
+
+   fprintf(fp, " (%u vregs)\n", total_vregs);
+}
+
 static inline void
-va_print_src(FILE *fp, unsigned type, unsigned value, unsigned size, unsigned fau_page, const cmpbe_chunk_CMMN *ctx)
+va_print_src(FILE *fp, unsigned type, unsigned value, unsigned size, unsigned fau_page,
+             const cmpbe_chunk_CMMN *ctx, unsigned instr_idx, const uint32_t *first_def_idx)
 {
    if (type == VA_SRC_IMM_TYPE) {
       if (value >= 32) {
@@ -646,11 +715,9 @@ va_print_src(FILE *fp, unsigned type, unsigned value, unsigned size, unsigned fa
 
       if (ctx) {
          bool matched_meta = false;
-
          unsigned word_index = (pair_index * 2) + (value & 1);
          uint32_t byte_offset = word_index * 4;
 
-         // FCST constant pools
          for (uint32_t c = 0; c < ctx->constant_count; c++) {
             if (ctx->constants[c].constant_id == byte_offset) {
                uint32_t raw_val = ctx->constants[c].value;
@@ -658,28 +725,23 @@ va_print_src(FILE *fp, unsigned type, unsigned value, unsigned size, unsigned fa
                memcpy(&float_val, &raw_val, sizeof(float));
                if (raw_val != 0 && ((raw_val >= 0x38000000 && raw_val <= 0x4B800000) ||
                                     (raw_val >= 0xB8000000 && raw_val <= 0xCB800000))) {
-                  fprintf(fp, " (const: %gf)", float_val);
+                  fprintf(fp, " /* %gf */", float_val);
                } else {
-                  fprintf(fp, " (const: %u / 0x%X)", raw_val, raw_val);
+                  fprintf(fp, " /* %u (0x%X) */", raw_val, raw_val);
                }
                matched_meta = true;
                break;
             }
          }
-
-         // Push constants
          if (!matched_meta) {
             for (uint32_t i = 0; i < ctx->ssym_24.count; i++) {
                for (uint32_t r = 0; r < ctx->ssym_24.symbols[i].rloc_count; r++) {
                   uint32_t start = ctx->ssym_24.symbols[i].relocations[r].offset;
                   uint32_t end = start + ctx->ssym_24.symbols[i].relocations[r].size;
-
                   if (byte_offset >= start && byte_offset < end) {
                      uint32_t internal_offset = byte_offset - start;
                      const char *member_name = NULL;
                      uint32_t member_base = 0;
-
-                     // Get member name
                      if (ctx->ssym_24.symbols[i].type.tpib) {
                         const cmpbe_chunk_TPIB *tpib = ctx->ssym_24.symbols[i].type.tpib;
                         for (uint32_t m = 0; m < tpib->member_count; m++) {
@@ -689,15 +751,14 @@ va_print_src(FILE *fp, unsigned type, unsigned value, unsigned size, unsigned fa
                            }
                         }
                      }
-
                      if (member_name) {
                         if (internal_offset == member_base) {
-                           fprintf(fp, " (pushConstants_0.%s)", member_name);
+                           fprintf(fp, " /* pushConstants_0.%s */", member_name);
                         } else {
-                           fprintf(fp, " (pushConstants_0.%s + %uB)", member_name, internal_offset - member_base);
+                           fprintf(fp, " /* pushConstants_0.%s + %uB */", member_name, internal_offset - member_base);
                         }
                      } else {
-                        fprintf(fp, " (pushConstants_%s + %uB)", ctx->ssym_24.symbols[i].name.string_data, internal_offset);
+                        fprintf(fp, " /* %s + %uB */", ctx->ssym_24.symbols[i].name.string_data, internal_offset);
                      }
                      matched_meta = true;
                      break;
@@ -706,12 +767,10 @@ va_print_src(FILE *fp, unsigned type, unsigned value, unsigned size, unsigned fa
                if (matched_meta) break;
             }
          }
-
-         // Descriptors
          if (!matched_meta) {
             for (uint32_t b = 0; b < ctx->ssym_43.count; b++) {
                if (ctx->ssym_43.symbols[b].binding_id == pair_index) {
-                  fprintf(fp, " (descriptor: %s)", ctx->ssym_43.symbols[b].name.string_data);
+                  fprintf(fp, " /* @%s */", ctx->ssym_43.symbols[b].name.string_data);
                   break;
                }
             }
@@ -724,17 +783,27 @@ va_print_src(FILE *fp, unsigned type, unsigned value, unsigned size, unsigned fa
          fprintf(fp, "[r%u%s:r%u%s]", value, dmark, value + 1, dmark);
       else
          fprintf(fp, "r%u%s", value, dmark);
+
+      if (value >= 55 && value <= 62 && instr_idx < first_def_idx[value]) {
+         const char *compute_labels[] = {
+            "gl_LocalInvocationID.xy", "gl_LocalInvocationID.z",
+            "gl_WorkGroupID.x", "gl_WorkGroupID.y", "gl_WorkGroupID.z",
+            "gl_GlobalInvocationID.x", "gl_GlobalInvocationID.y", "gl_GlobalInvocationID.z"
+         };
+         fprintf(fp, " /* %s */", compute_labels[value - 55]);
+      }
    }
 }
 
 static inline void
-va_print_float_src(FILE *fp, unsigned type, unsigned value, unsigned size, unsigned fau_page, bool neg, bool abs, const cmpbe_chunk_CMMN *ctx)
+va_print_float_src(FILE *fp, unsigned type, unsigned value, unsigned size, unsigned fau_page,
+                   bool neg, bool abs, const cmpbe_chunk_CMMN *ctx, unsigned instr_idx, const uint32_t *first_def_idx)
 {
    if (type == VA_SRC_IMM_TYPE) {
       assert(value < 32 && "overflow in LUT");
       fprintf(fp, "0x%X", va_immediates[value]);
    } else {
-      va_print_src(fp, type, value, size, fau_page, ctx);
+      va_print_src(fp, type, value, size, fau_page, ctx, instr_idx, first_def_idx);
    }
 
    if (neg) fprintf(fp, ".neg");
@@ -742,7 +811,7 @@ va_print_float_src(FILE *fp, unsigned type, unsigned value, unsigned size, unsig
 }
 
 static inline void
-va_print_dest(FILE *fp, unsigned mask, unsigned value, unsigned size)
+va_print_dest(FILE *fp, unsigned mask, unsigned value, unsigned size, unsigned instr_idx, const uint32_t *first_def_idx)
 {
    if (size > 32)
       fprintf(fp, "[r%u:r%u]", value, value + 1);
@@ -751,14 +820,25 @@ va_print_dest(FILE *fp, unsigned mask, unsigned value, unsigned size)
 
    if (mask != 0x3)
       fprintf(fp, ".h%u", (mask == 1) ? 0 : 1);
+
+   if (value >= 55 && value <= 62 && instr_idx == first_def_idx[value]) {
+      const char *compute_labels[] = {
+         "gl_LocalInvocationID.xy", "gl_LocalInvocationID.z",
+         "gl_WorkGroupID.x", "gl_WorkGroupID.y", "gl_WorkGroupID.z",
+         "gl_GlobalInvocationID.x", "gl_GlobalInvocationID.y", "gl_GlobalInvocationID.z"
+       };
+      fprintf(fp, " /* clobbers %s */", compute_labels[value - 55]);
+   }
 }
 
 
 
 
 
+static AnalyzedInstruction *program_ctx = NULL;
+
 void
-va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
+va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned instr_idx, const uint32_t *first_def_idx)
 {
    unsigned opcode;
    
@@ -767,6 +847,11 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x0:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+         return;
+      }
 
 
       fputs("NOP", fp);
@@ -779,6 +864,15 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("BRANCHZ", fp);
       if (instr & BIT(35)) fputs(".conservative", fp);
@@ -786,7 +880,7 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_combine[(instr >> 37) & 0x7], fp);
 
       fprintf(fp, ", offset:%d", (uint32_t) SEXT( ((instr >> 8) & MASK(27)) , 27));
@@ -798,6 +892,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("DISCARD.f32", fp);
       fputs(valhall_condition[(instr >> 32) & 0x7], fp);
@@ -805,13 +912,13 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(valhall_widen[(instr >> 28) & 0x3], fp);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 14) & 0x3, (instr >> 8) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(36), instr & BIT(37), ctx);
+                         instr & BIT(36), instr & BIT(37), ctx, instr_idx, first_def_idx);
       fputs(valhall_widen[(instr >> 26) & 0x3], fp);
 
 
@@ -821,6 +928,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("BRANCHZI", fp);
       if (instr & BIT(35)) fputs(".conservative", fp);
@@ -829,12 +949,12 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_combine[(instr >> 37) & 0x7], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -842,6 +962,11 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x45:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+         return;
+      }
 
 
       fputs("BARRIER", fp);
@@ -855,28 +980,53 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 30) & 3) <= 1) {
+               uint32_t r = (instr >> 24) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("CSEL.f32", fp);
       fputs(valhall_condition[(instr >> 32) & 0x7], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                         32, (instr >> 57) & 0x3, false, false, ctx);
+                         32, (instr >> 57) & 0x3, false, false, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                         32, (instr >> 57) & 0x3, false, false, ctx);
+                         32, (instr >> 57) & 0x3, false, false, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                         32, (instr >> 57) & 0x3, false, false, ctx);
+                         32, (instr >> 57) & 0x3, false, false, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 30) & 3, (instr >> 24) & 0x3f,
-                         32, (instr >> 57) & 0x3, false, false, ctx);
+                         32, (instr >> 57) & 0x3, false, false, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -885,28 +1035,53 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 30) & 3) <= 1) {
+               uint32_t r = (instr >> 24) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("CSEL.v2f16", fp);
       fputs(valhall_condition[(instr >> 32) & 0x7], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                         16, (instr >> 57) & 0x3, false, false, ctx);
+                         16, (instr >> 57) & 0x3, false, false, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                         16, (instr >> 57) & 0x3, false, false, ctx);
+                         16, (instr >> 57) & 0x3, false, false, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                         16, (instr >> 57) & 0x3, false, false, ctx);
+                         16, (instr >> 57) & 0x3, false, false, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 30) & 3, (instr >> 24) & 0x3f,
-                         16, (instr >> 57) & 0x3, false, false, ctx);
+                         16, (instr >> 57) & 0x3, false, false, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -915,28 +1090,53 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 30) & 3) <= 1) {
+               uint32_t r = (instr >> 24) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("CSEL.u32", fp);
       fputs(valhall_condition[(instr >> 32) & 0x7], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 30) & 3, (instr >> 24) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -945,28 +1145,53 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 30) & 3) <= 1) {
+               uint32_t r = (instr >> 24) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("CSEL.v2u16", fp);
       fputs(valhall_condition[(instr >> 32) & 0x7], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 30) & 3, (instr >> 24) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -975,28 +1200,53 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 30) & 3) <= 1) {
+               uint32_t r = (instr >> 24) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("CSEL.s32", fp);
       fputs(valhall_condition[(instr >> 32) & 0x7], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 30) & 3, (instr >> 24) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -1005,28 +1255,53 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 30) & 3) <= 1) {
+               uint32_t r = (instr >> 24) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("CSEL.v2s16", fp);
       fputs(valhall_condition[(instr >> 32) & 0x7], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 30) & 3, (instr >> 24) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -1034,6 +1309,15 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x56:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("LD_VAR_SPECIAL", fp);
@@ -1052,7 +1336,7 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
       fprintf(fp, ", index:0x%X", (uint32_t)  ((instr >> 12) & MASK(4)) );
 
@@ -1062,6 +1346,11 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x40:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+         return;
+      }
 
 
       fputs("LD_VAR_BUF_FLAT_IMM", fp);
@@ -1085,6 +1374,15 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("LD_VAR_BUF_FLAT", fp);
       fputs(valhall_slot[(instr >> 30) & 0x7], fp);
@@ -1100,7 +1398,7 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -1108,6 +1406,15 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x5c:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("LD_VAR_BUF_IMM.f32", fp);
@@ -1126,7 +1433,7 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
       fprintf(fp, ", index:0x%X", (uint32_t)  ((instr >> 16) & MASK(8)) );
 
@@ -1136,6 +1443,15 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x5d:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("LD_VAR_BUF_IMM.f16", fp);
@@ -1154,7 +1470,7 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
       fprintf(fp, ", index:0x%X", (uint32_t)  ((instr >> 16) & MASK(8)) );
 
@@ -1164,6 +1480,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x6c:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("LD_VAR_BUF.f32", fp);
@@ -1182,11 +1511,11 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -1194,6 +1523,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x6d:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("LD_VAR_BUF.f16", fp);
@@ -1212,11 +1554,11 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -1224,6 +1566,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x64:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("LD_VAR", fp);
@@ -1242,11 +1597,11 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -1254,6 +1609,15 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x54:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("LD_VAR_IMM", fp);
@@ -1272,7 +1636,7 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
       fprintf(fp, ", table:0x%X", (uint32_t)  ((instr >> 8) & MASK(4)) );
 
@@ -1284,6 +1648,15 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x55:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("LD_VAR_FLAT", fp);
@@ -1300,7 +1673,7 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -1308,6 +1681,11 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x41:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+         return;
+      }
 
 
       fputs("LD_VAR_FLAT_IMM", fp);
@@ -1338,6 +1716,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("LD_ATTR_IMM", fp);
       fputs(valhall_vector_size[(instr >> 28) & 0x3], fp);
@@ -1353,11 +1744,11 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
       fprintf(fp, ", index:0x%X", (uint32_t)  ((instr >> 20) & MASK(4)) );
 
@@ -1369,6 +1760,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x1:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("LD_TEX_IMM", fp);
@@ -1385,11 +1789,11 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
       fprintf(fp, ", index:0x%X", (uint32_t)  ((instr >> 20) & MASK(4)) );
 
@@ -1411,6 +1815,23 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("LD_ATTR", fp);
       fputs(valhall_vector_size[(instr >> 28) & 0x3], fp);
@@ -1426,15 +1847,15 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -1442,6 +1863,23 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x1:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("LD_TEX", fp);
@@ -1458,15 +1896,15 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -1478,6 +1916,11 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x44:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+         return;
+      }
 
 
       fputs("LD_GCLK_U64", fp);
@@ -1502,6 +1945,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("LEA_ATTR_IMM", fp);
       fputs(valhall_slot[(instr >> 30) & 0x7], fp);
@@ -1515,11 +1971,11 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
       fprintf(fp, ", table:0x%X", (uint32_t)  ((instr >> 16) & MASK(4)) );
 
@@ -1531,6 +1987,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x1:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("LEA_TEX_IMM", fp);
@@ -1545,11 +2014,11 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
       fprintf(fp, ", table:0x%X", (uint32_t)  ((instr >> 16) & MASK(4)) );
 
@@ -1571,6 +2040,23 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("LEA_ATTR", fp);
       fputs(valhall_vector_size[(instr >> 28) & 0x3], fp);
@@ -1585,15 +2071,15 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -1601,6 +2087,23 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x1:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("LEA_TEX", fp);
@@ -1616,15 +2119,15 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -1642,6 +2145,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("LD_PKA.i8", fp);
       fputs(valhall_load_lane_8_bit[(instr >> 36) & 0x7], fp);
@@ -1657,11 +2173,11 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -1669,6 +2185,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x1:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("LD_PKA.i16", fp);
@@ -1685,11 +2214,11 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -1697,6 +2226,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x2:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("LD_PKA.i24", fp);
@@ -1713,11 +2255,11 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -1725,6 +2267,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x3:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("LD_PKA.i32", fp);
@@ -1741,11 +2296,11 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -1753,6 +2308,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x4:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("LD_PKA.i48", fp);
@@ -1769,11 +2337,11 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -1781,6 +2349,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x5:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("LD_PKA.i64", fp);
@@ -1797,11 +2378,11 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -1809,6 +2390,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x6:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("LD_PKA.i96", fp);
@@ -1825,11 +2419,11 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -1837,6 +2431,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x7:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("LD_PKA.i128", fp);
@@ -1853,11 +2460,11 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -1869,6 +2476,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x6e:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("LEA_BUF", fp);
@@ -1883,11 +2503,11 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -1895,6 +2515,15 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x5e:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("LEA_BUF_IMM", fp);
@@ -1909,7 +2538,7 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
       fprintf(fp, ", table:0x%X", (uint32_t)  ((instr >> 8) & MASK(4)) );
 
@@ -1927,6 +2556,22 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 6) & 0x3) != VA_SRC_UNIFORM_TYPE) {
+               uint32_t parsed_offset = (instr >> 16) & 0xFFFF;
+               if (parsed_offset < MAX_STACK_SLOTS) {
+                  ai->stack_slot = parsed_offset;
+                     ai->is_load = true;
+               }
+            }
+         return;
+      }
+
 
       fputs("LOAD.i8", fp);
       fputs(valhall_memory_access[(instr >> 24) & 0x3], fp);
@@ -1943,7 +2588,7 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
       fprintf(fp, ", offset:%d", (uint32_t) SEXT( ((instr >> 8) & MASK(16)) , 16));
 
@@ -1953,6 +2598,22 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x1:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 6) & 0x3) != VA_SRC_UNIFORM_TYPE) {
+               uint32_t parsed_offset = (instr >> 16) & 0xFFFF;
+               if (parsed_offset < MAX_STACK_SLOTS) {
+                  ai->stack_slot = parsed_offset;
+                     ai->is_load = true;
+               }
+            }
+         return;
+      }
 
 
       fputs("LOAD.i16", fp);
@@ -1970,7 +2631,7 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
       fprintf(fp, ", offset:%d", (uint32_t) SEXT( ((instr >> 8) & MASK(16)) , 16));
 
@@ -1980,6 +2641,22 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x2:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 6) & 0x3) != VA_SRC_UNIFORM_TYPE) {
+               uint32_t parsed_offset = (instr >> 16) & 0xFFFF;
+               if (parsed_offset < MAX_STACK_SLOTS) {
+                  ai->stack_slot = parsed_offset;
+                     ai->is_load = true;
+               }
+            }
+         return;
+      }
 
 
       fputs("LOAD.i24", fp);
@@ -1997,7 +2674,7 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
       fprintf(fp, ", offset:%d", (uint32_t) SEXT( ((instr >> 8) & MASK(16)) , 16));
 
@@ -2007,6 +2684,22 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x3:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 6) & 0x3) != VA_SRC_UNIFORM_TYPE) {
+               uint32_t parsed_offset = (instr >> 16) & 0xFFFF;
+               if (parsed_offset < MAX_STACK_SLOTS) {
+                  ai->stack_slot = parsed_offset;
+                     ai->is_load = true;
+               }
+            }
+         return;
+      }
 
 
       fputs("LOAD.i32", fp);
@@ -2024,7 +2717,7 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
       fprintf(fp, ", offset:%d", (uint32_t) SEXT( ((instr >> 8) & MASK(16)) , 16));
 
@@ -2034,6 +2727,22 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x4:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 6) & 0x3) != VA_SRC_UNIFORM_TYPE) {
+               uint32_t parsed_offset = (instr >> 16) & 0xFFFF;
+               if (parsed_offset < MAX_STACK_SLOTS) {
+                  ai->stack_slot = parsed_offset;
+                     ai->is_load = true;
+               }
+            }
+         return;
+      }
 
 
       fputs("LOAD.i48", fp);
@@ -2051,7 +2760,7 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
       fprintf(fp, ", offset:%d", (uint32_t) SEXT( ((instr >> 8) & MASK(16)) , 16));
 
@@ -2061,6 +2770,22 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x5:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 6) & 0x3) != VA_SRC_UNIFORM_TYPE) {
+               uint32_t parsed_offset = (instr >> 16) & 0xFFFF;
+               if (parsed_offset < MAX_STACK_SLOTS) {
+                  ai->stack_slot = parsed_offset;
+                     ai->is_load = true;
+               }
+            }
+         return;
+      }
 
 
       fputs("LOAD.i64", fp);
@@ -2078,7 +2803,7 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
       fprintf(fp, ", offset:%d", (uint32_t) SEXT( ((instr >> 8) & MASK(16)) , 16));
 
@@ -2088,6 +2813,22 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x6:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 6) & 0x3) != VA_SRC_UNIFORM_TYPE) {
+               uint32_t parsed_offset = (instr >> 16) & 0xFFFF;
+               if (parsed_offset < MAX_STACK_SLOTS) {
+                  ai->stack_slot = parsed_offset;
+                     ai->is_load = true;
+               }
+            }
+         return;
+      }
 
 
       fputs("LOAD.i96", fp);
@@ -2105,7 +2846,7 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
       fprintf(fp, ", offset:%d", (uint32_t) SEXT( ((instr >> 8) & MASK(16)) , 16));
 
@@ -2115,6 +2856,22 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x7:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 6) & 0x3) != VA_SRC_UNIFORM_TYPE) {
+               uint32_t parsed_offset = (instr >> 16) & 0xFFFF;
+               if (parsed_offset < MAX_STACK_SLOTS) {
+                  ai->stack_slot = parsed_offset;
+                     ai->is_load = true;
+               }
+            }
+         return;
+      }
 
 
       fputs("LOAD.i128", fp);
@@ -2132,7 +2889,7 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
       fprintf(fp, ", offset:%d", (uint32_t) SEXT( ((instr >> 8) & MASK(16)) , 16));
 
@@ -2152,6 +2909,22 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 6) & 0x3) != VA_SRC_UNIFORM_TYPE) {
+               uint32_t parsed_offset = (instr >> 16) & 0xFFFF;
+               if (parsed_offset < MAX_STACK_SLOTS) {
+                  ai->stack_slot = parsed_offset;
+                     ai->is_store = true;
+               }
+            }
+         return;
+      }
+
 
       fputs("STORE.i8", fp);
       fputs(valhall_memory_access[(instr >> 24) & 0x3], fp);
@@ -2166,7 +2939,7 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
       fprintf(fp, ", offset:%d", (uint32_t) SEXT( ((instr >> 8) & MASK(16)) , 16));
 
@@ -2176,6 +2949,22 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x1:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 6) & 0x3) != VA_SRC_UNIFORM_TYPE) {
+               uint32_t parsed_offset = (instr >> 16) & 0xFFFF;
+               if (parsed_offset < MAX_STACK_SLOTS) {
+                  ai->stack_slot = parsed_offset;
+                     ai->is_store = true;
+               }
+            }
+         return;
+      }
 
 
       fputs("STORE.i16", fp);
@@ -2191,7 +2980,7 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
       fprintf(fp, ", offset:%d", (uint32_t) SEXT( ((instr >> 8) & MASK(16)) , 16));
 
@@ -2201,6 +2990,22 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x2:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 6) & 0x3) != VA_SRC_UNIFORM_TYPE) {
+               uint32_t parsed_offset = (instr >> 16) & 0xFFFF;
+               if (parsed_offset < MAX_STACK_SLOTS) {
+                  ai->stack_slot = parsed_offset;
+                     ai->is_store = true;
+               }
+            }
+         return;
+      }
 
 
       fputs("STORE.i24", fp);
@@ -2216,7 +3021,7 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
       fprintf(fp, ", offset:%d", (uint32_t) SEXT( ((instr >> 8) & MASK(16)) , 16));
 
@@ -2226,6 +3031,22 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x3:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 6) & 0x3) != VA_SRC_UNIFORM_TYPE) {
+               uint32_t parsed_offset = (instr >> 16) & 0xFFFF;
+               if (parsed_offset < MAX_STACK_SLOTS) {
+                  ai->stack_slot = parsed_offset;
+                     ai->is_store = true;
+               }
+            }
+         return;
+      }
 
 
       fputs("STORE.i32", fp);
@@ -2241,7 +3062,7 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
       fprintf(fp, ", offset:%d", (uint32_t) SEXT( ((instr >> 8) & MASK(16)) , 16));
 
@@ -2251,6 +3072,22 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x4:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 6) & 0x3) != VA_SRC_UNIFORM_TYPE) {
+               uint32_t parsed_offset = (instr >> 16) & 0xFFFF;
+               if (parsed_offset < MAX_STACK_SLOTS) {
+                  ai->stack_slot = parsed_offset;
+                     ai->is_store = true;
+               }
+            }
+         return;
+      }
 
 
       fputs("STORE.i48", fp);
@@ -2266,7 +3103,7 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
       fprintf(fp, ", offset:%d", (uint32_t) SEXT( ((instr >> 8) & MASK(16)) , 16));
 
@@ -2276,6 +3113,22 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x5:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 6) & 0x3) != VA_SRC_UNIFORM_TYPE) {
+               uint32_t parsed_offset = (instr >> 16) & 0xFFFF;
+               if (parsed_offset < MAX_STACK_SLOTS) {
+                  ai->stack_slot = parsed_offset;
+                     ai->is_store = true;
+               }
+            }
+         return;
+      }
 
 
       fputs("STORE.i64", fp);
@@ -2291,7 +3144,7 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
       fprintf(fp, ", offset:%d", (uint32_t) SEXT( ((instr >> 8) & MASK(16)) , 16));
 
@@ -2301,6 +3154,22 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x6:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 6) & 0x3) != VA_SRC_UNIFORM_TYPE) {
+               uint32_t parsed_offset = (instr >> 16) & 0xFFFF;
+               if (parsed_offset < MAX_STACK_SLOTS) {
+                  ai->stack_slot = parsed_offset;
+                     ai->is_store = true;
+               }
+            }
+         return;
+      }
 
 
       fputs("STORE.i96", fp);
@@ -2316,7 +3185,7 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
       fprintf(fp, ", offset:%d", (uint32_t) SEXT( ((instr >> 8) & MASK(16)) , 16));
 
@@ -2326,6 +3195,22 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x7:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 6) & 0x3) != VA_SRC_UNIFORM_TYPE) {
+               uint32_t parsed_offset = (instr >> 16) & 0xFFFF;
+               if (parsed_offset < MAX_STACK_SLOTS) {
+                  ai->stack_slot = parsed_offset;
+                     ai->is_store = true;
+               }
+            }
+         return;
+      }
 
 
       fputs("STORE.i128", fp);
@@ -2341,7 +3226,7 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
       fprintf(fp, ", offset:%d", (uint32_t) SEXT( ((instr >> 8) & MASK(16)) , 16));
 
@@ -2356,6 +3241,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("LEA_PKA", fp);
       fputs(valhall_slot[(instr >> 30) & 0x7], fp);
@@ -2369,11 +3267,11 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -2381,6 +3279,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x70:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("LD_CVT", fp);
@@ -2398,11 +3309,11 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
       fprintf(fp, ", offset:0x%X", (uint32_t)  ((instr >> 8) & MASK(8)) );
 
@@ -2412,6 +3323,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x71:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("ST_CVT", fp);
@@ -2429,11 +3353,11 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
       fprintf(fp, ", offset:0x%X", (uint32_t)  ((instr >> 8) & MASK(8)) );
 
@@ -2443,6 +3367,23 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x78:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("LD_TILE", fp);
@@ -2459,15 +3400,15 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -2475,6 +3416,23 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x79:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("ST_TILE", fp);
@@ -2491,15 +3449,15 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -2507,6 +3465,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x7f:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("BLEND", fp);
@@ -2523,11 +3494,11 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
       fprintf(fp, ", target:0x%X", (uint32_t)  ((instr >> 8) & MASK(8)) );
 
@@ -2537,6 +3508,23 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x7d:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("ATEST", fp);
@@ -2550,16 +3538,16 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_widen[(instr >> 26) & 0x3], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -2567,6 +3555,23 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x7e:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("ZS_EMIT", fp);
@@ -2583,15 +3588,15 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -2605,16 +3610,29 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("V2S16_TO_V2F16", fp);
       fputs(valhall_round_mode[(instr >> 30) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 36) & 0xf], fp);
 
 
@@ -2624,16 +3642,29 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("S32_TO_F32", fp);
       fputs(valhall_round_mode[(instr >> 30) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_32_bit[(instr >> 36) & 0xf], fp);
 
 
@@ -2643,16 +3674,29 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("V2U16_TO_V2F16", fp);
       fputs(valhall_round_mode[(instr >> 30) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 36) & 0xf], fp);
 
 
@@ -2662,16 +3706,29 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("U32_TO_F32", fp);
       fputs(valhall_round_mode[(instr >> 30) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_32_bit[(instr >> 36) & 0xf], fp);
 
 
@@ -2681,15 +3738,28 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("S16_TO_S32", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_lane_16_bit[(instr >> 28) & 0x1], fp);
 
 
@@ -2699,15 +3769,28 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("S16_TO_F32", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_lane_16_bit[(instr >> 28) & 0x1], fp);
 
 
@@ -2717,15 +3800,28 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("U16_TO_U32", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_lane_16_bit[(instr >> 28) & 0x1], fp);
 
 
@@ -2735,15 +3831,28 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("U16_TO_F32", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_lane_16_bit[(instr >> 28) & 0x1], fp);
 
 
@@ -2753,17 +3862,30 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("F32_TO_S32", fp);
       fputs(valhall_round_mode[(instr >> 30) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -2772,17 +3894,30 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("F32_TO_U32", fp);
       fputs(valhall_round_mode[(instr >> 30) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -2791,17 +3926,30 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("V2F16_TO_V2S16", fp);
       fputs(valhall_round_mode[(instr >> 30) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          16, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 28) & 0x3], fp);
 
 
@@ -2811,17 +3959,30 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("V2F16_TO_V2U16", fp);
       fputs(valhall_round_mode[(instr >> 30) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          16, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 28) & 0x3], fp);
 
 
@@ -2831,17 +3992,30 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("F16_TO_S32", fp);
       fputs(valhall_round_mode[(instr >> 30) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          16, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(valhall_lane_16_bit[(instr >> 28) & 0x1], fp);
 
 
@@ -2851,17 +4025,30 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("F16_TO_U32", fp);
       fputs(valhall_round_mode[(instr >> 30) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          16, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(valhall_lane_16_bit[(instr >> 28) & 0x1], fp);
 
 
@@ -2871,17 +4058,30 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("F16_TO_F32", fp);
       fputs(valhall_round_mode[(instr >> 30) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          16, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(valhall_lane_16_bit[(instr >> 28) & 0x1], fp);
 
 
@@ -2891,15 +4091,28 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("S8_TO_S32", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_lane_8_bit[(instr >> 28) & 0x3], fp);
 
 
@@ -2909,15 +4122,28 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("S8_TO_F32", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_lane_8_bit[(instr >> 28) & 0x3], fp);
 
 
@@ -2927,15 +4153,28 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("U8_TO_U32", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_lane_8_bit[(instr >> 28) & 0x3], fp);
 
 
@@ -2945,15 +4184,28 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("U8_TO_F32", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_lane_8_bit[(instr >> 28) & 0x3], fp);
 
 
@@ -2963,15 +4215,28 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("V2S8_TO_V2S16", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_half_swizzles_8_bit[(instr >> 36) & 0xf], fp);
 
 
@@ -2981,15 +4246,28 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("V2S8_TO_V2F16", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_half_swizzles_8_bit[(instr >> 36) & 0xf], fp);
 
 
@@ -2999,15 +4277,28 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("V2U8_TO_V2U16", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_half_swizzles_8_bit[(instr >> 36) & 0xf], fp);
 
 
@@ -3017,15 +4308,28 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("V2U8_TO_V2F16", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_half_swizzles_8_bit[(instr >> 36) & 0xf], fp);
 
 
@@ -3035,17 +4339,30 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("FROUND.f32", fp);
       fputs(valhall_round_mode[(instr >> 30) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(valhall_widen[(instr >> 28) & 0x3], fp);
 
 
@@ -3055,17 +4372,30 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("FROUND.v2f16", fp);
       fputs(valhall_round_mode[(instr >> 30) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          16, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 28) & 0x3], fp);
 
 
@@ -3084,15 +4414,28 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("MOV.i32", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -3101,15 +4444,28 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("CLZ.u32", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -3118,15 +4474,28 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("CLZ.v2u16", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 28) & 0x3], fp);
 
 
@@ -3136,15 +4505,28 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("CLZ.v4u8", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -3153,15 +4535,28 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("IABS.s32", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_32_bit[(instr >> 36) & 0xf], fp);
 
 
@@ -3171,15 +4566,28 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("IABS.v2s16", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 36) & 0xf], fp);
 
 
@@ -3189,15 +4597,28 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("IABS.v4s8", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -3206,15 +4627,28 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("POPCOUNT.i32", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -3223,15 +4657,28 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("BITREV.i32", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -3240,15 +4687,28 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("NOT_OLD.i32", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -3266,15 +4726,28 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("NOT_OLD.i64", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 64);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 64, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -3287,16 +4760,29 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("WMASK", fp);
       fputs(valhall_subgroup_size[(instr >> 36) & 0xf], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -3310,6 +4796,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("FLUSH.f32", fp);
       fputs(valhall_nan_mode[(instr >> 8) & 0x3], fp);
@@ -3317,12 +4816,12 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       if (instr & BIT(11)) fputs(".flush_inf", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(valhall_widen[(instr >> 28) & 0x3], fp);
 
 
@@ -3332,6 +4831,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("FLUSH.v2f16", fp);
       fputs(valhall_nan_mode[(instr >> 8) & 0x3], fp);
@@ -3339,12 +4851,12 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       if (instr & BIT(11)) fputs(".flush_inf", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          16, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 28) & 0x3], fp);
 
 
@@ -3363,17 +4875,30 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("FREXPM.f32", fp);
       if (instr & BIT(24)) fputs(".sqrt", fp);
       if (instr & BIT(25)) fputs(".log", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                         32, (instr >> 57) & 0x3, false, false, ctx);
+                         32, (instr >> 57) & 0x3, false, false, ctx, instr_idx, first_def_idx);
       fputs(valhall_widen[(instr >> 28) & 0x3], fp);
 
 
@@ -3383,17 +4908,30 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("FREXPM.v2f16", fp);
       if (instr & BIT(24)) fputs(".sqrt", fp);
       if (instr & BIT(25)) fputs(".log", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                         16, (instr >> 57) & 0x3, false, false, ctx);
+                         16, (instr >> 57) & 0x3, false, false, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 28) & 0x3], fp);
 
 
@@ -3403,17 +4941,30 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("FREXPE.f32", fp);
       if (instr & BIT(24)) fputs(".sqrt", fp);
       if (instr & BIT(25)) fputs(".log", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                         32, (instr >> 57) & 0x3, false, false, ctx);
+                         32, (instr >> 57) & 0x3, false, false, ctx, instr_idx, first_def_idx);
       fputs(valhall_widen[(instr >> 28) & 0x3], fp);
 
 
@@ -3423,17 +4974,30 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("FREXPE.v2f16", fp);
       if (instr & BIT(24)) fputs(".sqrt", fp);
       if (instr & BIT(25)) fputs(".log", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                         16, (instr >> 57) & 0x3, false, false, ctx);
+                         16, (instr >> 57) & 0x3, false, false, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 28) & 0x3], fp);
 
 
@@ -3452,16 +5016,29 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("FRCP.f32", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(valhall_widen[(instr >> 28) & 0x3], fp);
 
 
@@ -3471,16 +5048,29 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("FRCP.f16", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          16, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 28) & 0x3], fp);
 
 
@@ -3490,16 +5080,29 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("FRSQ.f32", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(valhall_widen[(instr >> 28) & 0x3], fp);
 
 
@@ -3509,16 +5112,29 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("FRSQ.f16", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          16, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 28) & 0x3], fp);
 
 
@@ -3528,16 +5144,29 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("FLOGD.f32", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(valhall_widen[(instr >> 28) & 0x3], fp);
 
 
@@ -3547,16 +5176,29 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("FPCLASS.f32", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(valhall_widen[(instr >> 28) & 0x3], fp);
 
 
@@ -3566,16 +5208,29 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("FPCLASS.f16", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          16, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 28) & 0x3], fp);
 
 
@@ -3585,16 +5240,29 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("FLOG_TABLE.f32", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(valhall_widen[(instr >> 28) & 0x3], fp);
 
 
@@ -3604,16 +5272,29 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("FRCP_APPROX.f32", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(valhall_widen[(instr >> 28) & 0x3], fp);
 
 
@@ -3623,16 +5304,29 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("FRSQ_APPROX.f32", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(valhall_widen[(instr >> 28) & 0x3], fp);
 
 
@@ -3642,15 +5336,28 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("FSIN_TABLE.u6", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -3659,15 +5366,28 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("FCOS_TABLE.u6", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -3676,15 +5396,28 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("FSINCOS_OFFSET.u6", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -3693,15 +5426,28 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("FEXP_TABLE.u4", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -3719,6 +5465,23 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("FADD.f32", fp);
       fputs(valhall_round_mode[(instr >> 30) & 0x3], fp);
@@ -3726,18 +5489,18 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(valhall_round_mode[(instr >> 30) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(valhall_widen[(instr >> 28) & 0x3], fp);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 14) & 0x3, (instr >> 8) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(36), instr & BIT(37), ctx);
+                         instr & BIT(36), instr & BIT(37), ctx, instr_idx, first_def_idx);
       fputs(valhall_widen[(instr >> 26) & 0x3], fp);
 
 
@@ -3747,23 +5510,40 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("FMIN.f32", fp);
       fputs(valhall_clamp[(instr >> 32) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(valhall_widen[(instr >> 28) & 0x3], fp);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 14) & 0x3, (instr >> 8) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(36), instr & BIT(37), ctx);
+                         instr & BIT(36), instr & BIT(37), ctx, instr_idx, first_def_idx);
       fputs(valhall_widen[(instr >> 26) & 0x3], fp);
 
 
@@ -3773,23 +5553,40 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("FMAX.f32", fp);
       fputs(valhall_clamp[(instr >> 32) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(valhall_widen[(instr >> 28) & 0x3], fp);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 14) & 0x3, (instr >> 8) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(36), instr & BIT(37), ctx);
+                         instr & BIT(36), instr & BIT(37), ctx, instr_idx, first_def_idx);
       fputs(valhall_widen[(instr >> 26) & 0x3], fp);
 
 
@@ -3799,21 +5596,38 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("LDEXP.f32", fp);
       fputs(valhall_round_mode[(instr >> 30) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -3822,21 +5636,38 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("FEXP.f32", fp);
       fputs(valhall_clamp[(instr >> 32) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 14) & 0x3, (instr >> 8) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(36), instr & BIT(37), ctx);
+                         instr & BIT(36), instr & BIT(37), ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -3845,22 +5676,39 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("FADD_LSCALE.f32", fp);
       fputs(valhall_clamp[(instr >> 32) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 14) & 0x3, (instr >> 8) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(36), instr & BIT(37), ctx);
+                         instr & BIT(36), instr & BIT(37), ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -3869,20 +5717,37 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("FATAN_ASSIST.f32", fp);
       if (instr & BIT(24)) fputs(".second", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -3900,6 +5765,23 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("FADD.v2f16", fp);
       fputs(valhall_round_mode[(instr >> 30) & 0x3], fp);
@@ -3907,18 +5789,18 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(valhall_round_mode[(instr >> 30) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          16, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 28) & 0x3], fp);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 14) & 0x3, (instr >> 8) & 0x3f,
                          16, (instr >> 57) & 0x3,
-                         instr & BIT(36), instr & BIT(37), ctx);
+                         instr & BIT(36), instr & BIT(37), ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 26) & 0x3], fp);
 
 
@@ -3928,23 +5810,40 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("FMIN.v2f16", fp);
       fputs(valhall_clamp[(instr >> 32) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          16, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 28) & 0x3], fp);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 14) & 0x3, (instr >> 8) & 0x3f,
                          16, (instr >> 57) & 0x3,
-                         instr & BIT(36), instr & BIT(37), ctx);
+                         instr & BIT(36), instr & BIT(37), ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 26) & 0x3], fp);
 
 
@@ -3954,23 +5853,40 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("FMAX.v2f16", fp);
       fputs(valhall_clamp[(instr >> 32) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          16, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 28) & 0x3], fp);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 14) & 0x3, (instr >> 8) & 0x3f,
                          16, (instr >> 57) & 0x3,
-                         instr & BIT(36), instr & BIT(37), ctx);
+                         instr & BIT(36), instr & BIT(37), ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 26) & 0x3], fp);
 
 
@@ -3980,23 +5896,40 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("V2F32_TO_V2F16", fp);
       fputs(valhall_clamp[(instr >> 32) & 0x3], fp);
       fputs(valhall_round_mode[(instr >> 30) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          16, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 14) & 0x3, (instr >> 8) & 0x3f,
                          16, (instr >> 57) & 0x3,
-                         instr & BIT(36), instr & BIT(37), ctx);
+                         instr & BIT(36), instr & BIT(37), ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -4005,21 +5938,38 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("LDEXP.v2f16", fp);
       fputs(valhall_round_mode[(instr >> 30) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          16, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -4037,21 +5987,38 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("IADD.u32", fp);
       if (instr & BIT(30)) fputs(".saturate", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_32_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_32_bit[(instr >> 26) & 0xf], fp);
 
 
@@ -4061,21 +6028,38 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("ISUB.u32", fp);
       if (instr & BIT(30)) fputs(".saturate", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_32_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_32_bit[(instr >> 26) & 0xf], fp);
 
 
@@ -4085,21 +6069,38 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("IMUL.i32", fp);
       if (instr & BIT(30)) fputs(".saturate", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_32_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_32_bit[(instr >> 26) & 0xf], fp);
 
 
@@ -4109,21 +6110,38 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("HADD.u32", fp);
       if (instr & BIT(30)) fputs(".rhadd", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_32_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_32_bit[(instr >> 26) & 0xf], fp);
 
 
@@ -4133,6 +6151,23 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("CLPER.i32", fp);
       fputs(valhall_subgroup_size[(instr >> 36) & 0xf], fp);
@@ -4140,15 +6175,15 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(valhall_inactive_result[(instr >> 22) & 0xf], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_lanes_8_bit[(instr >> 26) & 0xf], fp);
 
 
@@ -4167,21 +6202,38 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("IADD.v2u16", fp);
       if (instr & BIT(30)) fputs(".saturate", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 26) & 0xf], fp);
 
 
@@ -4191,20 +6243,37 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("MKVEC.v2i16", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_lane_16_bit[(instr >> 28) & 0x1], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_lane_16_bit[(instr >> 26) & 0x1], fp);
 
 
@@ -4214,21 +6283,38 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("ISUB.v2u16", fp);
       if (instr & BIT(30)) fputs(".saturate", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 26) & 0xf], fp);
 
 
@@ -4238,21 +6324,38 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("IMUL.v2i16", fp);
       if (instr & BIT(30)) fputs(".saturate", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 26) & 0xf], fp);
 
 
@@ -4262,21 +6365,38 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("HADD.v2u16", fp);
       if (instr & BIT(30)) fputs(".rhadd", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 26) & 0xf], fp);
 
 
@@ -4295,21 +6415,38 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("IADD.v4u8", fp);
       if (instr & BIT(30)) fputs(".saturate", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_8_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_8_bit[(instr >> 26) & 0xf], fp);
 
 
@@ -4319,21 +6456,38 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("ISUB.v4u8", fp);
       if (instr & BIT(30)) fputs(".saturate", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_8_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_8_bit[(instr >> 26) & 0xf], fp);
 
 
@@ -4343,21 +6497,38 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("IMUL.v4i8", fp);
       if (instr & BIT(30)) fputs(".saturate", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_8_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_8_bit[(instr >> 26) & 0xf], fp);
 
 
@@ -4367,21 +6538,38 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("HADD.v4u8", fp);
       if (instr & BIT(30)) fputs(".rhadd", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_8_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_8_bit[(instr >> 26) & 0xf], fp);
 
 
@@ -4400,21 +6588,38 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("IADD.s32", fp);
       if (instr & BIT(30)) fputs(".saturate", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_32_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_32_bit[(instr >> 26) & 0xf], fp);
 
 
@@ -4424,21 +6629,38 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("ISUB.s32", fp);
       if (instr & BIT(30)) fputs(".saturate", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_32_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_32_bit[(instr >> 26) & 0xf], fp);
 
 
@@ -4448,21 +6670,38 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("IMUL.s32", fp);
       if (instr & BIT(30)) fputs(".saturate", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_32_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_32_bit[(instr >> 26) & 0xf], fp);
 
 
@@ -4472,21 +6711,38 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("HADD.s32", fp);
       if (instr & BIT(30)) fputs(".rhadd", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_32_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_32_bit[(instr >> 26) & 0xf], fp);
 
 
@@ -4505,21 +6761,38 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("IADD.v2s16", fp);
       if (instr & BIT(30)) fputs(".saturate", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 26) & 0xf], fp);
 
 
@@ -4529,21 +6802,38 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("ISUB.v2s16", fp);
       if (instr & BIT(30)) fputs(".saturate", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 26) & 0xf], fp);
 
 
@@ -4553,21 +6843,38 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("IMUL.v2s16", fp);
       if (instr & BIT(30)) fputs(".saturate", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 26) & 0xf], fp);
 
 
@@ -4577,21 +6884,38 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("HADD.v2s16", fp);
       if (instr & BIT(30)) fputs(".rhadd", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 26) & 0xf], fp);
 
 
@@ -4610,21 +6934,38 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("IADD.v4s8", fp);
       if (instr & BIT(30)) fputs(".saturate", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_8_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_8_bit[(instr >> 26) & 0xf], fp);
 
 
@@ -4634,21 +6975,38 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("ISUB.v4s8", fp);
       if (instr & BIT(30)) fputs(".saturate", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_8_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_8_bit[(instr >> 26) & 0xf], fp);
 
 
@@ -4658,21 +7016,38 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("IMUL.v4s8", fp);
       if (instr & BIT(30)) fputs(".saturate", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_8_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_8_bit[(instr >> 26) & 0xf], fp);
 
 
@@ -4682,21 +7057,38 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("HADD.v4s8", fp);
       if (instr & BIT(30)) fputs(".rhadd", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_8_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_8_bit[(instr >> 26) & 0xf], fp);
 
 
@@ -4715,21 +7107,38 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("IADD.u64", fp);
       if (instr & BIT(30)) fputs(".saturate", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 64);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 64, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_64_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_64_bit[(instr >> 26) & 0xf], fp);
 
 
@@ -4739,21 +7148,38 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("ISUB.u64", fp);
       if (instr & BIT(30)) fputs(".saturate", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 64);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 64, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_64_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_64_bit[(instr >> 26) & 0xf], fp);
 
 
@@ -4763,21 +7189,38 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("SEG_ADD.u64", fp);
       if (instr & BIT(38)) fputs(".neg", fp);
       if (instr & BIT(39)) fputs(".preserve_null", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 64);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 64, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_64_bit[(instr >> 26) & 0xf], fp);
 
 
@@ -4787,19 +7230,36 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("SHADDX.u64", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 64);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 64, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_64_bit[(instr >> 26) & 0xf], fp);
 
       fprintf(fp, ", shift:0x%X", (uint32_t)  ((instr >> 20) & MASK(3)) );
@@ -4811,21 +7271,38 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("IMULD.u64", fp);
       if (instr & BIT(30)) fputs(".saturate", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 64);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 64, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_64_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_64_bit[(instr >> 26) & 0xf], fp);
 
 
@@ -4844,21 +7321,38 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("IADD.s64", fp);
       if (instr & BIT(30)) fputs(".saturate", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 64);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 64, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_64_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_64_bit[(instr >> 26) & 0xf], fp);
 
 
@@ -4868,21 +7362,38 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("ISUB.s64", fp);
       if (instr & BIT(30)) fputs(".saturate", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 64);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 64, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_64_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_64_bit[(instr >> 26) & 0xf], fp);
 
 
@@ -4892,19 +7403,36 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("SHADDX.s64", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 64);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 64, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_64_bit[(instr >> 26) & 0xf], fp);
 
       fprintf(fp, ", shift:0x%X", (uint32_t)  ((instr >> 20) & MASK(3)) );
@@ -4920,30 +7448,51 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("FMA.f32", fp);
       fputs(valhall_clamp[(instr >> 32) & 0x3], fp);
       fputs(valhall_round_mode[(instr >> 30) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(valhall_widen[(instr >> 28) & 0x3], fp);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 14) & 0x3, (instr >> 8) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(36), instr & BIT(37), ctx);
+                         instr & BIT(36), instr & BIT(37), ctx, instr_idx, first_def_idx);
       fputs(valhall_widen[(instr >> 26) & 0x3], fp);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 22) & 0x3, (instr >> 16) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(34), instr & BIT(35), ctx);
+                         instr & BIT(34), instr & BIT(35), ctx, instr_idx, first_def_idx);
       fputs(valhall_widen[(instr >> 24) & 0x3], fp);
 
 
@@ -4953,30 +7502,51 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("FMA.v2f16", fp);
       fputs(valhall_clamp[(instr >> 32) & 0x3], fp);
       fputs(valhall_round_mode[(instr >> 30) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          16, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 28) & 0x3], fp);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 14) & 0x3, (instr >> 8) & 0x3f,
                          16, (instr >> 57) & 0x3,
-                         instr & BIT(36), instr & BIT(37), ctx);
+                         instr & BIT(36), instr & BIT(37), ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 26) & 0x3], fp);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 22) & 0x3, (instr >> 16) & 0x3f,
                          16, (instr >> 57) & 0x3,
-                         instr & BIT(34), instr & BIT(35), ctx);
+                         instr & BIT(34), instr & BIT(35), ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 24) & 0x3], fp);
 
 
@@ -4991,26 +7561,47 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("LSHIFT_AND.i32", fp);
       if (instr & BIT(30)) fputs(".not_result", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_32_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_lanes_8_bit[(instr >> 26) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       if (instr & BIT(35)) fputs(".not", fp);
 
 
@@ -5020,27 +7611,48 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("RSHIFT_AND.i32", fp);
       if (instr & BIT(34)) fputs(".signed", fp);
       if (instr & BIT(30)) fputs(".not_result", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_32_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_lanes_8_bit[(instr >> 26) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       if (instr & BIT(35)) fputs(".not", fp);
 
 
@@ -5050,26 +7662,47 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("LSHIFT_OR.i32", fp);
       if (instr & BIT(30)) fputs(".not_result", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_32_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_lanes_8_bit[(instr >> 26) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       if (instr & BIT(35)) fputs(".not", fp);
 
 
@@ -5079,27 +7712,48 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("RSHIFT_OR.i32", fp);
       if (instr & BIT(34)) fputs(".signed", fp);
       if (instr & BIT(30)) fputs(".not_result", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_32_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_lanes_8_bit[(instr >> 26) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       if (instr & BIT(35)) fputs(".not", fp);
 
 
@@ -5109,26 +7763,47 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("LSHIFT_XOR.i32", fp);
       if (instr & BIT(30)) fputs(".not_result", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_32_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_lanes_8_bit[(instr >> 26) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       if (instr & BIT(35)) fputs(".not", fp);
 
 
@@ -5138,27 +7813,48 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("RSHIFT_XOR.i32", fp);
       if (instr & BIT(34)) fputs(".signed", fp);
       if (instr & BIT(30)) fputs(".not_result", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_32_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_lanes_8_bit[(instr >> 26) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       if (instr & BIT(35)) fputs(".not", fp);
 
 
@@ -5177,26 +7873,47 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("LSHIFT_AND.v2i16", fp);
       if (instr & BIT(30)) fputs(".not_result", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_lanes_8_bit[(instr >> 26) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       if (instr & BIT(35)) fputs(".not", fp);
 
 
@@ -5206,27 +7923,48 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("RSHIFT_AND.v2i16", fp);
       if (instr & BIT(34)) fputs(".signed", fp);
       if (instr & BIT(30)) fputs(".not_result", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_lanes_8_bit[(instr >> 26) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       if (instr & BIT(35)) fputs(".not", fp);
 
 
@@ -5236,26 +7974,47 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("LSHIFT_OR.v2i16", fp);
       if (instr & BIT(30)) fputs(".not_result", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_lanes_8_bit[(instr >> 26) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       if (instr & BIT(35)) fputs(".not", fp);
 
 
@@ -5265,27 +8024,48 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("RSHIFT_OR.v2i16", fp);
       if (instr & BIT(34)) fputs(".signed", fp);
       if (instr & BIT(30)) fputs(".not_result", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_lanes_8_bit[(instr >> 26) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       if (instr & BIT(35)) fputs(".not", fp);
 
 
@@ -5295,26 +8075,47 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("LSHIFT_XOR.v2i16", fp);
       if (instr & BIT(30)) fputs(".not_result", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_lanes_8_bit[(instr >> 26) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       if (instr & BIT(35)) fputs(".not", fp);
 
 
@@ -5324,27 +8125,48 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("RSHIFT_XOR.v2i16", fp);
       if (instr & BIT(34)) fputs(".signed", fp);
       if (instr & BIT(30)) fputs(".not_result", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_lanes_8_bit[(instr >> 26) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       if (instr & BIT(35)) fputs(".not", fp);
 
 
@@ -5363,26 +8185,47 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("LSHIFT_AND.v4i8", fp);
       if (instr & BIT(30)) fputs(".not_result", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_8_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_lanes_8_bit[(instr >> 26) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       if (instr & BIT(35)) fputs(".not", fp);
 
 
@@ -5392,27 +8235,48 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("RSHIFT_AND.v4i8", fp);
       if (instr & BIT(34)) fputs(".signed", fp);
       if (instr & BIT(30)) fputs(".not_result", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_8_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_lanes_8_bit[(instr >> 26) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       if (instr & BIT(35)) fputs(".not", fp);
 
 
@@ -5422,26 +8286,47 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("LSHIFT_OR.v4i8", fp);
       if (instr & BIT(30)) fputs(".not_result", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_8_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_lanes_8_bit[(instr >> 26) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       if (instr & BIT(35)) fputs(".not", fp);
 
 
@@ -5451,27 +8336,48 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("RSHIFT_OR.v4i8", fp);
       if (instr & BIT(34)) fputs(".signed", fp);
       if (instr & BIT(30)) fputs(".not_result", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_8_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_lanes_8_bit[(instr >> 26) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       if (instr & BIT(35)) fputs(".not", fp);
 
 
@@ -5481,26 +8387,47 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("LSHIFT_XOR.v4i8", fp);
       if (instr & BIT(30)) fputs(".not_result", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_8_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_lanes_8_bit[(instr >> 26) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       if (instr & BIT(35)) fputs(".not", fp);
 
 
@@ -5510,27 +8437,48 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("RSHIFT_XOR.v4i8", fp);
       if (instr & BIT(34)) fputs(".signed", fp);
       if (instr & BIT(30)) fputs(".not_result", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_8_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_lanes_8_bit[(instr >> 26) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       if (instr & BIT(35)) fputs(".not", fp);
 
 
@@ -5549,26 +8497,47 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("LSHIFT_AND.i64", fp);
       if (instr & BIT(30)) fputs(".not_result", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 64);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 64, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_64_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_lanes_8_bit[(instr >> 26) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       if (instr & BIT(35)) fputs(".not", fp);
 
 
@@ -5578,27 +8547,48 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("RSHIFT_AND.i64", fp);
       if (instr & BIT(34)) fputs(".signed", fp);
       if (instr & BIT(30)) fputs(".not_result", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 64);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 64, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_64_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_lanes_8_bit[(instr >> 26) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       if (instr & BIT(35)) fputs(".not", fp);
 
 
@@ -5608,26 +8598,47 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("LSHIFT_OR.i64", fp);
       if (instr & BIT(30)) fputs(".not_result", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 64);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 64, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_64_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_lanes_8_bit[(instr >> 26) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       if (instr & BIT(35)) fputs(".not", fp);
 
 
@@ -5637,27 +8648,48 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("RSHIFT_OR.i64", fp);
       if (instr & BIT(34)) fputs(".signed", fp);
       if (instr & BIT(30)) fputs(".not_result", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 64);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 64, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_64_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_lanes_8_bit[(instr >> 26) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       if (instr & BIT(35)) fputs(".not", fp);
 
 
@@ -5667,26 +8699,47 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("LSHIFT_XOR.i64", fp);
       if (instr & BIT(30)) fputs(".not_result", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 64);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 64, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_64_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_lanes_8_bit[(instr >> 26) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       if (instr & BIT(35)) fputs(".not", fp);
 
 
@@ -5696,27 +8749,48 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("RSHIFT_XOR.i64", fp);
       if (instr & BIT(34)) fputs(".signed", fp);
       if (instr & BIT(30)) fputs(".not_result", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 64);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 64, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_64_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_lanes_8_bit[(instr >> 26) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       if (instr & BIT(35)) fputs(".not", fp);
 
 
@@ -5730,24 +8804,45 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("MUX.i32", fp);
       fputs(valhall_mux[(instr >> 32) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -5756,26 +8851,47 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("MUX.v2i16", fp);
       fputs(valhall_mux[(instr >> 32) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 28) & 0x3], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 26) & 0x3], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 24) & 0x3], fp);
 
 
@@ -5785,24 +8901,45 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("MUX.v4i8", fp);
       fputs(valhall_mux[(instr >> 32) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -5816,25 +8953,46 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("CUBE_SSEL", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 14) & 0x3, (instr >> 8) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(36), instr & BIT(37), ctx);
+                         instr & BIT(36), instr & BIT(37), ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -5843,25 +9001,46 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("CUBE_TSEL", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 14) & 0x3, (instr >> 8) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(36), instr & BIT(37), ctx);
+                         instr & BIT(36), instr & BIT(37), ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -5874,25 +9053,46 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("MKVEC.v2i8", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_lane_8_bit[(instr >> 38) & 0x3], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_lane_8_bit[(instr >> 36) & 0x3], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -5901,26 +9101,47 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("CUBEFACE1", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 14) & 0x3, (instr >> 8) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(36), instr & BIT(37), ctx);
+                         instr & BIT(36), instr & BIT(37), ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 22) & 0x3, (instr >> 16) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(34), instr & BIT(35), ctx);
+                         instr & BIT(34), instr & BIT(35), ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -5929,26 +9150,47 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("CUBEFACE2_V9", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 14) & 0x3, (instr >> 8) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(36), instr & BIT(37), ctx);
+                         instr & BIT(36), instr & BIT(37), ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 22) & 0x3, (instr >> 16) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(34), instr & BIT(35), ctx);
+                         instr & BIT(34), instr & BIT(35), ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -5962,24 +9204,45 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("IDPADD.v4s8", fp);
       if (instr & BIT(30)) fputs(".saturate", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -5988,24 +9251,45 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("IDPADD.v4u8", fp);
       if (instr & BIT(30)) fputs(".saturate", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -6023,27 +9307,48 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("ICMP_OR.u32", fp);
       fputs(valhall_condition[(instr >> 32) & 0x7], fp);
       fputs(valhall_result_type[(instr >> 30) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_32_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_32_bit[(instr >> 26) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -6052,27 +9357,48 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("ICMP_AND.u32", fp);
       fputs(valhall_condition[(instr >> 32) & 0x7], fp);
       fputs(valhall_result_type[(instr >> 30) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_32_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_32_bit[(instr >> 26) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -6081,27 +9407,48 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("ICMP_MULTI.u32", fp);
       fputs(valhall_condition[(instr >> 32) & 0x7], fp);
       fputs(valhall_result_type[(instr >> 30) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_32_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_32_bit[(instr >> 26) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -6119,27 +9466,48 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("ICMP_OR.v2u16", fp);
       fputs(valhall_condition[(instr >> 32) & 0x7], fp);
       fputs(valhall_result_type[(instr >> 30) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 26) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -6148,27 +9516,48 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("ICMP_AND.v2u16", fp);
       fputs(valhall_condition[(instr >> 32) & 0x7], fp);
       fputs(valhall_result_type[(instr >> 30) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 26) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -6186,27 +9575,48 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("ICMP_OR.v4u8", fp);
       fputs(valhall_condition[(instr >> 32) & 0x7], fp);
       fputs(valhall_result_type[(instr >> 30) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_8_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_8_bit[(instr >> 26) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -6215,27 +9625,48 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("ICMP_AND.v4u8", fp);
       fputs(valhall_condition[(instr >> 32) & 0x7], fp);
       fputs(valhall_result_type[(instr >> 30) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_8_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_8_bit[(instr >> 26) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -6253,29 +9684,50 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("FCMP_OR.f32", fp);
       fputs(valhall_condition[(instr >> 32) & 0x7], fp);
       fputs(valhall_result_type[(instr >> 30) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(valhall_widen[(instr >> 28) & 0x3], fp);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 14) & 0x3, (instr >> 8) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(36), instr & BIT(37), ctx);
+                         instr & BIT(36), instr & BIT(37), ctx, instr_idx, first_def_idx);
       fputs(valhall_widen[(instr >> 26) & 0x3], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -6284,29 +9736,50 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("FCMP_AND.f32", fp);
       fputs(valhall_condition[(instr >> 32) & 0x7], fp);
       fputs(valhall_result_type[(instr >> 30) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(valhall_widen[(instr >> 28) & 0x3], fp);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 14) & 0x3, (instr >> 8) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(36), instr & BIT(37), ctx);
+                         instr & BIT(36), instr & BIT(37), ctx, instr_idx, first_def_idx);
       fputs(valhall_widen[(instr >> 26) & 0x3], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -6324,29 +9797,50 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("FCMP_OR.v2f16", fp);
       fputs(valhall_condition[(instr >> 32) & 0x7], fp);
       fputs(valhall_result_type[(instr >> 30) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          16, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 28) & 0x3], fp);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 14) & 0x3, (instr >> 8) & 0x3f,
                          16, (instr >> 57) & 0x3,
-                         instr & BIT(36), instr & BIT(37), ctx);
+                         instr & BIT(36), instr & BIT(37), ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 26) & 0x3], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -6355,29 +9849,50 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("FCMP_AND.v2f16", fp);
       fputs(valhall_condition[(instr >> 32) & 0x7], fp);
       fputs(valhall_result_type[(instr >> 30) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          16, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 28) & 0x3], fp);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 14) & 0x3, (instr >> 8) & 0x3f,
                          16, (instr >> 57) & 0x3,
-                         instr & BIT(36), instr & BIT(37), ctx);
+                         instr & BIT(36), instr & BIT(37), ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 26) & 0x3], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -6395,27 +9910,48 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("ICMP_OR.s32", fp);
       fputs(valhall_condition[(instr >> 32) & 0x7], fp);
       fputs(valhall_result_type[(instr >> 30) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_32_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_32_bit[(instr >> 26) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -6424,27 +9960,48 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("ICMP_AND.s32", fp);
       fputs(valhall_condition[(instr >> 32) & 0x7], fp);
       fputs(valhall_result_type[(instr >> 30) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_32_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_32_bit[(instr >> 26) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -6453,27 +10010,48 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("ICMP_MULTI.s32", fp);
       fputs(valhall_condition[(instr >> 32) & 0x7], fp);
       fputs(valhall_result_type[(instr >> 30) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_32_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_32_bit[(instr >> 26) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -6491,27 +10069,48 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("ICMP_OR.v2s16", fp);
       fputs(valhall_condition[(instr >> 32) & 0x7], fp);
       fputs(valhall_result_type[(instr >> 30) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 26) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -6520,27 +10119,48 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("ICMP_AND.v2s16", fp);
       fputs(valhall_condition[(instr >> 32) & 0x7], fp);
       fputs(valhall_result_type[(instr >> 30) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_16_bit[(instr >> 26) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -6558,27 +10178,48 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("ICMP_OR.v4s8", fp);
       fputs(valhall_condition[(instr >> 32) & 0x7], fp);
       fputs(valhall_result_type[(instr >> 30) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_8_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_8_bit[(instr >> 26) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -6587,27 +10228,48 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("ICMP_AND.v4s8", fp);
       fputs(valhall_condition[(instr >> 32) & 0x7], fp);
       fputs(valhall_result_type[(instr >> 30) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_8_bit[(instr >> 36) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 14) & 3, (instr >> 8) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(valhall_swizzles_8_bit[(instr >> 26) & 0xf], fp);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -6620,15 +10282,28 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("IADD_IMM.i32", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
       fprintf(fp, ", #0x%X", (uint32_t)  ((instr >> 8) & MASK(32)) );
 
@@ -6639,15 +10314,28 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("IADD_IMM.v2i16", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   16, (instr >> 57) & 0x3, ctx);
+                   16, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
       fprintf(fp, ", #0x%X", (uint32_t)  ((instr >> 8) & MASK(32)) );
 
@@ -6658,15 +10346,28 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("IADD_IMM.v4i8", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 8, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   8, (instr >> 57) & 0x3, ctx);
+                   8, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
       fprintf(fp, ", #0x%X", (uint32_t)  ((instr >> 8) & MASK(32)) );
 
@@ -6677,15 +10378,28 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("FADD_IMM.f32", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
       fprintf(fp, ", #0x%X", (uint32_t)  ((instr >> 8) & MASK(32)) );
 
@@ -6696,15 +10410,28 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("FADD_IMM.v2f16", fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 16, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                         16, (instr >> 57) & 0x3, false, false, ctx);
+                         16, (instr >> 57) & 0x3, false, false, ctx, instr_idx, first_def_idx);
 
       fprintf(fp, ", #0x%X", (uint32_t)  ((instr >> 8) & MASK(32)) );
 
@@ -6720,6 +10447,15 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("ATOM1_RETURN.i32", fp);
       fputs(valhall_slot[(instr >> 30) & 0x7], fp);
@@ -6734,7 +10470,7 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
       fprintf(fp, ", offset:0x%X", (uint32_t)  ((instr >> 8) & MASK(8)) );
 
@@ -6744,6 +10480,15 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x5:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("ATOM1_RETURN.i64", fp);
@@ -6759,7 +10504,7 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
       fprintf(fp, ", offset:0x%X", (uint32_t)  ((instr >> 8) & MASK(8)) );
 
@@ -6779,6 +10524,15 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("ATOM.i32", fp);
       fputs(valhall_slot[(instr >> 30) & 0x7], fp);
@@ -6793,7 +10547,7 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
       fprintf(fp, ", offset:0x%X", (uint32_t)  ((instr >> 8) & MASK(8)) );
 
@@ -6803,6 +10557,15 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x5:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("ATOM.i64", fp);
@@ -6818,7 +10581,7 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
       fprintf(fp, ", offset:0x%X", (uint32_t)  ((instr >> 8) & MASK(8)) );
 
@@ -6837,6 +10600,15 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x3:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("ATOM_RETURN.i32", fp);
@@ -6860,7 +10632,7 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
       fprintf(fp, ", offset:0x%X", (uint32_t)  ((instr >> 8) & MASK(8)) );
 
@@ -6870,6 +10642,15 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x5:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("ATOM_RETURN.i64", fp);
@@ -6893,7 +10674,7 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
       fprintf(fp, ", offset:0x%X", (uint32_t)  ((instr >> 8) & MASK(8)) );
 
@@ -6907,6 +10688,15 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x125:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("TEX_FETCH", fp);
@@ -6936,7 +10726,7 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -6944,6 +10734,15 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x128:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("TEX_SINGLE", fp);
@@ -6975,7 +10774,7 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -6983,6 +10782,15 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x129:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("TEX_GATHER", fp);
@@ -7015,7 +10823,7 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -7023,6 +10831,15 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x12a:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("TEX_GRADIENT", fp);
@@ -7052,7 +10869,7 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -7060,6 +10877,15 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x12f:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("TEX_DUAL", fp);
@@ -7092,7 +10918,7 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -7100,6 +10926,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x130:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("VAR_TEX_BUF_SINGLE", fp);
@@ -7122,11 +10961,11 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -7134,6 +10973,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x131:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("VAR_TEX_BUF_GATHER", fp);
@@ -7157,11 +11009,11 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -7169,6 +11021,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x132:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("VAR_TEX_BUF_GRADIENT", fp);
@@ -7192,11 +11057,11 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -7204,6 +11069,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x137:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("VAR_TEX_BUF_DUAL", fp);
@@ -7226,11 +11104,11 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -7238,6 +11116,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x138:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("VAR_TEX_SINGLE", fp);
@@ -7260,11 +11151,11 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -7272,6 +11163,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x139:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("VAR_TEX_GATHER", fp);
@@ -7295,11 +11199,11 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -7307,6 +11211,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x13a:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("VAR_TEX_GRADIENT", fp);
@@ -7330,11 +11247,11 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -7342,6 +11259,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    case 0x13f:
    {
 
+
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         return;
+      }
 
 
       fputs("VAR_TEX_DUAL", fp);
@@ -7364,11 +11294,11 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 6) & 3, (instr >> 0) & 0x3f,
-                   64, (instr >> 57) & 0x3, ctx);
+                   64, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 22) & 3, (instr >> 16) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -7377,31 +11307,56 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 30) & 3) <= 1) {
+               uint32_t r = (instr >> 24) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("FMA_RSCALE.f32", fp);
       fputs(valhall_clamp[(instr >> 32) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 14) & 0x3, (instr >> 8) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(36), instr & BIT(37), ctx);
+                         instr & BIT(36), instr & BIT(37), ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 22) & 0x3, (instr >> 16) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(34), instr & BIT(35), ctx);
+                         instr & BIT(34), instr & BIT(35), ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 30) & 3, (instr >> 24) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -7410,31 +11365,56 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 30) & 3) <= 1) {
+               uint32_t r = (instr >> 24) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("FMA_RSCALE_N.f32", fp);
       fputs(valhall_clamp[(instr >> 32) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 14) & 0x3, (instr >> 8) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(36), instr & BIT(37), ctx);
+                         instr & BIT(36), instr & BIT(37), ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 22) & 0x3, (instr >> 16) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(34), instr & BIT(35), ctx);
+                         instr & BIT(34), instr & BIT(35), ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 30) & 3, (instr >> 24) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -7443,31 +11423,56 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 30) & 3) <= 1) {
+               uint32_t r = (instr >> 24) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("FMA_RSCALE_LEFT.f32", fp);
       fputs(valhall_clamp[(instr >> 32) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 14) & 0x3, (instr >> 8) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(36), instr & BIT(37), ctx);
+                         instr & BIT(36), instr & BIT(37), ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 22) & 0x3, (instr >> 16) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(34), instr & BIT(35), ctx);
+                         instr & BIT(34), instr & BIT(35), ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 30) & 3, (instr >> 24) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -7476,31 +11481,56 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
    {
 
 
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+            if (((instr >> 6) & 3) <= 1) {
+               uint32_t r = (instr >> 0) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 14) & 3) <= 1) {
+               uint32_t r = (instr >> 8) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 22) & 3) <= 1) {
+               uint32_t r = (instr >> 16) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 30) & 3) <= 1) {
+               uint32_t r = (instr >> 24) & 0x3f;
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+            if (((instr >> 46) & 3) != 0xC0) {
+               uint32_t r = (instr >> 40) & 0x3f;
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         return;
+      }
+
 
       fputs("FMA_RSCALE_SCALE16.f32", fp);
       fputs(valhall_clamp[(instr >> 32) & 0x3], fp);
       fprintf(fp, "%s ", valhall_flow[(instr >> 59) & 0xf]);
 
-      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32);
+      va_print_dest(fp, (instr >> 46) & 0x3, (instr >> 40) & 0x3f, 32, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 6) & 0x3, (instr >> 0) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(38), instr & BIT(39), ctx);
+                         instr & BIT(38), instr & BIT(39), ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 14) & 0x3, (instr >> 8) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(36), instr & BIT(37), ctx);
+                         instr & BIT(36), instr & BIT(37), ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_float_src(fp, (instr >> 22) & 0x3, (instr >> 16) & 0x3f,
                          32, (instr >> 57) & 0x3,
-                         instr & BIT(34), instr & BIT(35), ctx);
+                         instr & BIT(34), instr & BIT(35), ctx, instr_idx, first_def_idx);
       fputs(", ", fp);
 
       va_print_src(fp, (instr >> 30) & 3, (instr >> 24) & 0x3f,
-                   32, (instr >> 57) & 0x3, ctx);
+                   32, (instr >> 57) & 0x3, ctx, instr_idx, first_def_idx);
 
 
       break;
@@ -7523,40 +11553,221 @@ disassemble_valhall(FILE *fp, const void *code, size_t size, bool verbose, const
 {
    assert((size & 7) == 0);
    const uint64_t *words = (const uint64_t *)code;
-   bool in_data_section = false;
+   uint32_t instruction_count = size / 8;
 
-   for (unsigned i = 0; i < (size / 8); ++i) {
-      uint64_t instr = words[i];
-      unsigned current_offset = i * 8;
+   if (instruction_count == 0) return;
 
-      if (in_data_section) {
-         if (instr == 0) {
-            fprintf(fp, "/* [0x%04X] */   .align_padding\n", current_offset);
-         } else {
-            fprintf(fp, "/* [0x%04X] %016llX */   .word 0x%08X, 0x%08X\n",
-                    current_offset, (unsigned long long)instr, (uint32_t)(instr & 0xFFFFFFFF), (uint32_t)(instr >> 32));
+   AnalyzedInstruction *program = calloc(instruction_count, sizeof(AnalyzedInstruction));
+   assert(program != NULL);
+
+   uint32_t first_def_idx[64];
+   for (int r = 0; r < 64; r++) first_def_idx[r] = 0xFFFFFFFF;
+
+   program_ctx = program;
+
+   uint32_t executable_limit = instruction_count;
+   for (uint32_t i = 0; i < instruction_count; i++) {
+      program[i].raw_word = words[i];
+      program[i].branch_target_idx = -1;
+      program[i].num_incoming_branches = 0;
+
+      if (((words[i] >> 59) & 0x0F) == 0x0F) {
+         executable_limit = i + 1;
+         break;
+      }
+
+      va_disasm_instr(NULL, words[i], NULL, i, first_def_idx);
+
+      for (int r = 0; r < 64; r++) {
+         if ((program[i].def_mask & BIT(r)) && first_def_idx[r] == 0xFFFFFFFF) {
+            first_def_idx[r] = i;
          }
-         continue;
       }
 
-      if (verbose) {
-         for (unsigned j = 0; j < 8; ++j)
-            fprintf(fp, "%02x ", (uint8_t)(instr >> (j * 8)));
-         fprintf(fp, "   ");
-      } else {
-         fprintf(fp, "   ");
-      }
-
-      va_disasm_instr(fp, instr, ctx);
-      fprintf(fp, "\n");
-
-      if (((instr >> 59) & 0x0F) == 0x0F) {
-         in_data_section = true;
-         fprintf(fp, "\n; ---- TERMINAL BREAK HIT: EMBEDDED POOL DATA ----\n");
-      } else if (is_branch(instr)) {
-         fprintf(fp, "\n");
+      if (program[i].is_branch = is_branch(words[i])) {
+         int32_t relative_offset = (int32_t)SEXT((words[i] >> 8) & MASK(24), 24);
+         int32_t dest_idx = (int32_t)i + 1 + relative_offset;
+         if (dest_idx >= 0 && dest_idx < (int32_t)instruction_count) {
+            program[i].branch_target_idx = dest_idx;
+         }
       }
    }
-   fprintf(fp, "\n");
+
+   program_ctx = NULL;
+
+   for (uint32_t i = 0; i < executable_limit; i++) {
+      if (program[i].is_branch && program[i].branch_target_idx != -1) {
+         uint32_t target = program[i].branch_target_idx;
+         if (target < instruction_count) {
+            uint32_t cnt = program[target].num_incoming_branches;
+            if (cnt < 16) {
+               program[target].incoming_branch_offsets[cnt] = i * 8;
+               program[target].num_incoming_branches++;
+            }
+         }
+      }
+   }
+
+   bool change = true;
+   uint64_t global_divergence_mask = 0;
+
+   while (change) {
+      change = false;
+      for (int32_t i = (int32_t)executable_limit - 1; i >= 0; i--) {
+         uint64_t next_live_regs = 0;
+         uint8_t next_live_stack[MAX_STACK_SLOTS];
+         memset(next_live_stack, 0, MAX_STACK_SLOTS);
+
+         if (i == (int32_t)executable_limit - 1) {
+            next_live_regs = 0;
+         } else {
+            next_live_regs = program[i + 1].live_regs_in;
+            memcpy(next_live_stack, program[i + 1].live_stack_in, MAX_STACK_SLOTS);
+         }
+
+         if (program[i].branch_target_idx != -1) {
+            uint32_t target = program[i].branch_target_idx;
+            next_live_regs |= program[target].live_regs_in;
+            for (int s = 0; s < MAX_STACK_SLOTS; s++) {
+               if (program[target].live_stack_in[s]) next_live_stack[s] = 1;
+            }
+         }
+
+         if (program[i].is_reconverge = (((words[i] >> 56) & 0x1) == 0x1)) {
+            global_divergence_mask = 0;
+         }
+         if (program[i].is_branch) {
+            uint32_t target = program[i].branch_target_idx;
+            if (target != -1) {
+               global_divergence_mask |= program[target].live_regs_in;
+            }
+         }
+
+         next_live_regs |= global_divergence_mask;
+
+         if (program[i].live_regs_out != next_live_regs) {
+            program[i].live_regs_out = next_live_regs;
+            change = true;
+         }
+
+         uint64_t computed_regs_in = program[i].gen_mask | (program[i].live_regs_out & ~program[i].def_mask);
+         if (program[i].live_regs_in != computed_regs_in) {
+            program[i].live_regs_in = computed_regs_in;
+            change = true;
+         }
+
+         if (program[i].stack_slot != -1) {
+            if (program[i].is_load) {
+               next_live_stack[program[i].stack_slot] = 1;
+            } else if (program[i].is_store) {
+               next_live_stack[program[i].stack_slot] = 0;
+            }
+         }
+
+         if (memcmp(program[i].live_stack_out, next_live_stack, MAX_STACK_SLOTS) != 0) {
+            memcpy(program[i].live_stack_out, next_live_stack, MAX_STACK_SLOTS);
+            change = true;
+         }
+
+         uint8_t computed_stack_in[MAX_STACK_SLOTS];
+         memcpy(computed_stack_in, next_live_stack, MAX_STACK_SLOTS);
+         if (program[i].stack_slot != -1 && program[i].is_load) {
+            computed_stack_in[program[i].stack_slot] = 1;
+         }
+
+         if (memcmp(program[i].live_stack_in, computed_stack_in, MAX_STACK_SLOTS) != 0) {
+            memcpy(program[i].live_stack_in, computed_stack_in, MAX_STACK_SLOTS);
+            change = true;
+         }
+      }
+   }
+
+    bool in_data_section = false;
+    fprintf(fp, ".text: // %u instructions\n", executable_limit);
+
+    for (unsigned i = 0; i < instruction_count; ++i) {
+        uint64_t instr = words[i];
+        unsigned current_offset = i * 8;
+
+        if (in_data_section) {
+        uint32_t row_bytes = 8;
+        uint64_t next_instr = 0;
+        if (i + 1 < instruction_count) {
+            next_instr = words[i + 1];
+            row_bytes = 16;
+        }
+        uint32_t q0 = (uint32_t)(instr & 0xFFFFFFFF);
+        uint32_t q1 = (uint32_t)(instr >> 32);
+        uint32_t q2 = (uint32_t)(next_instr & 0xFFFFFFFF);
+        uint32_t q3 = (uint32_t)(next_instr >> 32);
+
+        unsigned char db[16];
+        memcpy(&db[0], &instr, 8);
+        if (row_bytes == 16) {
+            memcpy(&db[8], &next_instr, 8);
+            fprintf(fp, "/* [0x%04X] */  %08X %08X %08X %08X  | ", current_offset, q0, q1, q2, q3);
+        } else {
+            memset(&db[8], 0, 8);
+            fprintf(fp, "/* [0x%04X] */  %08X %08X -------- --------  | ", current_offset, q0, q1);
+        }
+        for (int j = 0; j < 16; j++) {
+            if (j < (int)row_bytes) {
+                fprintf(fp, "%c", (db[j] >= 32 && db[j] <= 126) ? db[j] : '.');
+            } else {
+                fprintf(fp, " ");
+            }
+        }
+        fprintf(fp, " |\n");
+        if (row_bytes == 16) i++;
+        continue;
+        }
+
+        bool is_jump_target = (program[i].num_incoming_branches > 0);
+        bool is_branch_instr = program[i].is_branch;
+        bool is_above_jump_target = (i + 1 < executable_limit) && (program[i + 1].num_incoming_branches > 0);
+
+        bool live_flows_sequentially = false;
+        if (i + 1 < executable_limit) {
+            live_flows_sequentially = (program[i].live_regs_out == program[i + 1].live_regs_in);
+        }
+
+        bool show_as_generic_live = live_flows_sequentially && !is_jump_target;
+        if (is_jump_target) {
+        fprintf(fp, "/* Jump target from: ");
+        for (uint32_t b = 0; b < program[i].num_incoming_branches; b++) {
+            fprintf(fp, "0x%04X%s", program[i].incoming_branch_offsets[b], (b == program[i].num_incoming_branches - 1) ? "" : ", ");
+        }
+        fprintf(fp, " */\n");
+        }
+
+        if (show_as_generic_live) {
+            va_print_live_set_ranges(fp, "live", program[i].live_regs_in);
+        } else {
+            va_print_live_set_ranges(fp, "live-in", program[i].live_regs_in);
+        }
+
+        fprintf(fp, "%4u [0x%04X] %016llX   ", i, current_offset, (unsigned long long)instr);
+        va_disasm_instr(fp, instr, ctx, i, first_def_idx);
+
+        if (is_branch_instr && program[i].branch_target_idx != -1) {
+            fprintf(fp, " /* jumps to 0x%04X (instruction #%u) */",
+                program[i].branch_target_idx * 8, program[i].branch_target_idx);
+        }
+        fprintf(fp, "\n");
+        bool force_live_out = is_branch_instr || is_above_jump_target || !live_flows_sequentially;
+
+        if (force_live_out) {
+        va_print_live_set_ranges(fp, "live-out", program[i].live_regs_out);
+            fprintf(fp, "\n");
+        }
+
+        if (((instr >> 59) & 0x0F) == 0x0F) {
+            in_data_section = true;
+            fprintf(fp, ".rodata: // %lu bytes\n", size - (executable_limit * 8));
+        }
+    }
+
+    free(program);
+    fprintf(fp, "\n");
 }
 

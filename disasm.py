@@ -23,6 +23,7 @@ template = """
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdlib.h>
 #include <string.h>
 #include <assert.h>
 #include "disassemble.h"
@@ -31,10 +32,33 @@ template = """
 #define BIT(b)          (1ull << (b))
 #define MASK(count)    ((1ull << (count)) - 1)
 #define SEXT(b, count) ((b ^ BIT(count - 1)) - BIT(count - 1))
-#define UNUSED         __attribute__((unused))
+#define UNUSED          __attribute__((unused))
 
 #define VA_SRC_UNIFORM_TYPE 0x2
 #define VA_SRC_IMM_TYPE     0x3
+
+#define MAX_GPR_REGS 64
+#define MAX_STACK_SLOTS 256
+
+typedef struct {
+   uint64_t raw_word;
+   uint64_t gen_mask;
+   uint64_t def_mask;
+   int32_t  stack_slot;
+   bool     is_store;
+   bool     is_load;
+   bool     is_reconverge;
+   bool     is_branch;
+   int32_t  branch_target_idx;
+
+   uint32_t num_incoming_branches;
+   uint32_t incoming_branch_offsets[16];
+
+   uint64_t live_regs_in;
+   uint64_t live_regs_out;
+   uint8_t  live_stack_in[MAX_STACK_SLOTS];
+   uint8_t  live_stack_out[MAX_STACK_SLOTS];
+} AnalyzedInstruction;
 
 % for name, en in ENUMS.items():
 UNUSED static const char *valhall_${name}[] = {
@@ -50,8 +74,53 @@ static const uint32_t va_immediates[32] = {
 % endfor
 };
 
+static void
+va_print_live_set_ranges(FILE *fp, const char *prefix, uint64_t mask)
+{
+   uint32_t total_vregs = 0;
+   fprintf(fp, "// %s: ", prefix);
+
+   if (mask == 0) {
+      fprintf(fp, "none (0 vregs) */\\n");
+      return;
+   }
+
+   bool first_range = true;
+   int start = -1;
+   int end = -1;
+
+   for (int r = 0; r <= MAX_GPR_REGS; r++) {
+      bool is_set = (r < MAX_GPR_REGS) && ((mask & BIT(r)) != 0);
+
+      if (is_set) {
+         total_vregs++;
+         if (start == -1) {
+            start = r;
+         }
+         end = r;
+      } else {
+         if (start != -1) {
+            if (!first_range) {
+               fprintf(fp, ",");
+            }
+            if (start == end) {
+               fprintf(fp, "r%d", start);
+            } else {
+               fprintf(fp, "r%d-r%d", start, end);
+            }
+            first_range = false;
+            start = -1;
+            end = -1;
+         }
+      }
+   }
+
+   fprintf(fp, " (%u vregs)\\n", total_vregs);
+}
+
 static inline void
-va_print_src(FILE *fp, unsigned type, unsigned value, unsigned size, unsigned fau_page, const cmpbe_chunk_CMMN *ctx)
+va_print_src(FILE *fp, unsigned type, unsigned value, unsigned size, unsigned fau_page,
+             const cmpbe_chunk_CMMN *ctx, unsigned instr_idx, const uint32_t *first_def_idx)
 {
    if (type == VA_SRC_IMM_TYPE) {
       if (value >= 32) {
@@ -76,11 +145,9 @@ va_print_src(FILE *fp, unsigned type, unsigned value, unsigned size, unsigned fa
 
       if (ctx) {
          bool matched_meta = false;
-
          unsigned word_index = (pair_index * 2) + (value & 1);
          uint32_t byte_offset = word_index * 4;
 
-         // FCST constant pools
          for (uint32_t c = 0; c < ctx->constant_count; c++) {
             if (ctx->constants[c].constant_id == byte_offset) {
                uint32_t raw_val = ctx->constants[c].value;
@@ -88,28 +155,23 @@ va_print_src(FILE *fp, unsigned type, unsigned value, unsigned size, unsigned fa
                memcpy(&float_val, &raw_val, sizeof(float));
                if (raw_val != 0 && ((raw_val >= 0x38000000 && raw_val <= 0x4B800000) ||
                                     (raw_val >= 0xB8000000 && raw_val <= 0xCB800000))) {
-                  fprintf(fp, " (const: %gf)", float_val);
+                  fprintf(fp, " /* %gf */", float_val);
                } else {
-                  fprintf(fp, " (const: %u / 0x%X)", raw_val, raw_val);
+                  fprintf(fp, " /* %u (0x%X) */", raw_val, raw_val);
                }
                matched_meta = true;
                break;
             }
          }
-
-         // Push constants
          if (!matched_meta) {
             for (uint32_t i = 0; i < ctx->ssym_24.count; i++) {
                for (uint32_t r = 0; r < ctx->ssym_24.symbols[i].rloc_count; r++) {
                   uint32_t start = ctx->ssym_24.symbols[i].relocations[r].offset;
                   uint32_t end = start + ctx->ssym_24.symbols[i].relocations[r].size;
-
                   if (byte_offset >= start && byte_offset < end) {
                      uint32_t internal_offset = byte_offset - start;
                      const char *member_name = NULL;
                      uint32_t member_base = 0;
-
-                     // Get member name
                      if (ctx->ssym_24.symbols[i].type.tpib) {
                         const cmpbe_chunk_TPIB *tpib = ctx->ssym_24.symbols[i].type.tpib;
                         for (uint32_t m = 0; m < tpib->member_count; m++) {
@@ -119,15 +181,14 @@ va_print_src(FILE *fp, unsigned type, unsigned value, unsigned size, unsigned fa
                            }
                         }
                      }
-
                      if (member_name) {
                         if (internal_offset == member_base) {
-                           fprintf(fp, " (pushConstants_0.%s)", member_name);
+                           fprintf(fp, " /* pushConstants_0.%s */", member_name);
                         } else {
-                           fprintf(fp, " (pushConstants_0.%s + %uB)", member_name, internal_offset - member_base);
+                           fprintf(fp, " /* pushConstants_0.%s + %uB */", member_name, internal_offset - member_base);
                         }
                      } else {
-                        fprintf(fp, " (pushConstants_%s + %uB)", ctx->ssym_24.symbols[i].name.string_data, internal_offset);
+                        fprintf(fp, " /* %s + %uB */", ctx->ssym_24.symbols[i].name.string_data, internal_offset);
                      }
                      matched_meta = true;
                      break;
@@ -136,12 +197,10 @@ va_print_src(FILE *fp, unsigned type, unsigned value, unsigned size, unsigned fa
                if (matched_meta) break;
             }
          }
-
-         // Descriptors
          if (!matched_meta) {
             for (uint32_t b = 0; b < ctx->ssym_43.count; b++) {
                if (ctx->ssym_43.symbols[b].binding_id == pair_index) {
-                  fprintf(fp, " (descriptor: %s)", ctx->ssym_43.symbols[b].name.string_data);
+                  fprintf(fp, " /* @%s */", ctx->ssym_43.symbols[b].name.string_data);
                   break;
                }
             }
@@ -154,17 +213,27 @@ va_print_src(FILE *fp, unsigned type, unsigned value, unsigned size, unsigned fa
          fprintf(fp, "[r%u%s:r%u%s]", value, dmark, value + 1, dmark);
       else
          fprintf(fp, "r%u%s", value, dmark);
+
+      if (value >= 55 && value <= 62 && instr_idx < first_def_idx[value]) {
+         const char *compute_labels[] = {
+            "gl_LocalInvocationID.xy", "gl_LocalInvocationID.z",
+            "gl_WorkGroupID.x", "gl_WorkGroupID.y", "gl_WorkGroupID.z",
+            "gl_GlobalInvocationID.x", "gl_GlobalInvocationID.y", "gl_GlobalInvocationID.z"
+         };
+         fprintf(fp, " /* %s */", compute_labels[value - 55]);
+      }
    }
 }
 
 static inline void
-va_print_float_src(FILE *fp, unsigned type, unsigned value, unsigned size, unsigned fau_page, bool neg, bool abs, const cmpbe_chunk_CMMN *ctx)
+va_print_float_src(FILE *fp, unsigned type, unsigned value, unsigned size, unsigned fau_page,
+                   bool neg, bool abs, const cmpbe_chunk_CMMN *ctx, unsigned instr_idx, const uint32_t *first_def_idx)
 {
    if (type == VA_SRC_IMM_TYPE) {
       assert(value < 32 && "overflow in LUT");
       fprintf(fp, "0x%X", va_immediates[value]);
    } else {
-      va_print_src(fp, type, value, size, fau_page, ctx);
+      va_print_src(fp, type, value, size, fau_page, ctx, instr_idx, first_def_idx);
    }
 
    if (neg) fprintf(fp, ".neg");
@@ -172,7 +241,7 @@ va_print_float_src(FILE *fp, unsigned type, unsigned value, unsigned size, unsig
 }
 
 static inline void
-va_print_dest(FILE *fp, unsigned mask, unsigned value, unsigned size)
+va_print_dest(FILE *fp, unsigned mask, unsigned value, unsigned size, unsigned instr_idx, const uint32_t *first_def_idx)
 {
    if (size > 32)
       fprintf(fp, "[r%u:r%u]", value, value + 1);
@@ -181,9 +250,48 @@ va_print_dest(FILE *fp, unsigned mask, unsigned value, unsigned size)
 
    if (mask != 0x3)
       fprintf(fp, ".h%u", (mask == 1) ? 0 : 1);
+
+   if (value >= 55 && value <= 62 && instr_idx == first_def_idx[value]) {
+      const char *compute_labels[] = {
+         "gl_LocalInvocationID.xy", "gl_LocalInvocationID.z",
+         "gl_WorkGroupID.x", "gl_WorkGroupID.y", "gl_WorkGroupID.z",
+         "gl_GlobalInvocationID.x", "gl_GlobalInvocationID.y", "gl_GlobalInvocationID.z"
+       };
+      fprintf(fp, " /* clobbers %s */", compute_labels[value - 55]);
+   }
 }
 
 <%def name="print_instr(op)">
+      if (!fp && program_ctx) {
+         AnalyzedInstruction *ai = &program_ctx[instr_idx];
+         % for src in op.srcs:
+            if (((instr >> ${src.offset['mode']}) & ${src.mask['mode']}) <= 1) {
+               uint32_t r = (instr >> ${src.offset['value']}) & ${hex(src.mask['value'])};
+               if (r < 64) ai->gen_mask |= BIT(r);
+            }
+         % endfor
+         % for dest in op.dests:
+            if (((instr >> ${dest.offset['mode']}) & ${dest.mask['mode']}) != 0xC0) {
+               uint32_t r = (instr >> ${dest.offset['value']}) & ${hex(dest.mask['value'])};
+               if (r < 64) ai->def_mask |= BIT(r);
+            }
+         % endfor
+         % if op.name.startswith("LOAD") or op.name.startswith("STORE"):
+            if (((instr >> 6) & 0x3) != VA_SRC_UNIFORM_TYPE) {
+               uint32_t parsed_offset = (instr >> 16) & 0xFFFF;
+               if (parsed_offset < MAX_STACK_SLOTS) {
+                  ai->stack_slot = parsed_offset;
+                  % if op.name.startswith("STORE"):
+                     ai->is_store = true;
+                  % else:
+                     ai->is_load = true;
+                  % endif
+               }
+            }
+         % endif
+         return;
+      }
+
 <% no_comma = True %>
       fputs("${op.name}", fp);
 % for mod in op.modifiers:
@@ -198,7 +306,7 @@ va_print_dest(FILE *fp, unsigned mask, unsigned value, unsigned size)
       fprintf(fp, "%s ", valhall_flow[(instr >> ${op.offset['flow']}) & ${hex(op.mask['flow'])}]);
 % for i, dest in enumerate(op.dests):
 <% no_comma = False %>
-      va_print_dest(fp, (instr >> ${dest.offset['mode']}) & ${hex(dest.mask['mode'])}, (instr >> ${dest.offset['value']}) & ${hex(dest.mask['value'])}, ${dest.size});
+      va_print_dest(fp, (instr >> ${dest.offset['mode']}) & ${hex(dest.mask['mode'])}, (instr >> ${dest.offset['value']}) & ${hex(dest.mask['value'])}, ${dest.size}, instr_idx, first_def_idx);
 % endfor
 % for index, sr in enumerate(op.staging):
 % if not no_comma:
@@ -229,13 +337,13 @@ va_print_dest(FILE *fp, unsigned mask, unsigned value, unsigned size)
 % if src.absneg:
       va_print_float_src(fp, (instr >> ${src.offset['mode']}) & ${hex(src.mask['mode'])}, (instr >> ${src.offset['value']}) & ${hex(src.mask['value'])},
                          ${src.size}, (instr >> ${op.offset['fau_page']}) & ${hex(op.mask['fau_page'])},
-                         instr & BIT(${src.offset['neg']}), instr & BIT(${src.offset['abs']}), ctx);
+                         instr & BIT(${src.offset['neg']}), instr & BIT(${src.offset['abs']}), ctx, instr_idx, first_def_idx);
 % elif src.is_float:
       va_print_float_src(fp, (instr >> ${src.offset['mode']}) & ${src.mask['mode']}, (instr >> ${src.offset['value']}) & ${hex(src.mask['value'])},
-                         ${src.size}, (instr >> ${op.offset['fau_page']}) & ${hex(op.mask['fau_page'])}, false, false, ctx);
+                         ${src.size}, (instr >> ${op.offset['fau_page']}) & ${hex(op.mask['fau_page'])}, false, false, ctx, instr_idx, first_def_idx);
 % else:
       va_print_src(fp, (instr >> ${src.offset['mode']}) & ${src.mask['mode']}, (instr >> ${src.offset['value']}) & ${hex(src.mask['value'])},
-                   ${src.size}, (instr >> ${op.offset['fau_page']}) & ${hex(op.mask['fau_page'])}, ctx);
+                   ${src.size}, (instr >> ${op.offset['fau_page']}) & ${hex(op.mask['fau_page'])}, ctx, instr_idx, first_def_idx);
 % endif
 % if src.swizzle:
 % if src.size == 32:
@@ -286,8 +394,10 @@ ${recurse_subcodes(op_bucket.children[op])}
 %endif
 </%def>
 
+static AnalyzedInstruction *program_ctx = NULL;
+
 void
-va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx)
+va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned instr_idx, const uint32_t *first_def_idx)
 {
    unsigned opcode;
    ${recurse_subcodes(OPCODES)}
@@ -307,41 +417,222 @@ disassemble_valhall(FILE *fp, const void *code, size_t size, bool verbose, const
 {
    assert((size & 7) == 0);
    const uint64_t *words = (const uint64_t *)code;
-   bool in_data_section = false;
+   uint32_t instruction_count = size / 8;
 
-   for (unsigned i = 0; i < (size / 8); ++i) {
-      uint64_t instr = words[i];
-      unsigned current_offset = i * 8;
+   if (instruction_count == 0) return;
 
-      if (in_data_section) {
-         if (instr == 0) {
-            fprintf(fp, "/* [0x%04X] */   .align_padding\\n", current_offset);
-         } else {
-            fprintf(fp, "/* [0x%04X] %016llX */   .word 0x%08X, 0x%08X\\n",
-                    current_offset, (unsigned long long)instr, (uint32_t)(instr & 0xFFFFFFFF), (uint32_t)(instr >> 32));
+   AnalyzedInstruction *program = calloc(instruction_count, sizeof(AnalyzedInstruction));
+   assert(program != NULL);
+
+   uint32_t first_def_idx[64];
+   for (int r = 0; r < 64; r++) first_def_idx[r] = 0xFFFFFFFF;
+
+   program_ctx = program;
+
+   uint32_t executable_limit = instruction_count;
+   for (uint32_t i = 0; i < instruction_count; i++) {
+      program[i].raw_word = words[i];
+      program[i].branch_target_idx = -1;
+      program[i].num_incoming_branches = 0;
+
+      if (((words[i] >> 59) & 0x0F) == 0x0F) {
+         executable_limit = i + 1;
+         break;
+      }
+
+      va_disasm_instr(NULL, words[i], NULL, i, first_def_idx);
+
+      for (int r = 0; r < 64; r++) {
+         if ((program[i].def_mask & BIT(r)) && first_def_idx[r] == 0xFFFFFFFF) {
+            first_def_idx[r] = i;
          }
-         continue;
       }
 
-      if (verbose) {
-         for (unsigned j = 0; j < 8; ++j)
-            fprintf(fp, "%02x ", (uint8_t)(instr >> (j * 8)));
-         fprintf(fp, "   ");
-      } else {
-         fprintf(fp, "   ");
-      }
-
-      va_disasm_instr(fp, instr, ctx);
-      fprintf(fp, "\\n");
-
-      if (((instr >> 59) & 0x0F) == 0x0F) {
-         in_data_section = true;
-         fprintf(fp, "\\n; ---- TERMINAL BREAK HIT: EMBEDDED POOL DATA ----\\n");
-      } else if (is_branch(instr)) {
-         fprintf(fp, "\\n");
+      if (program[i].is_branch = is_branch(words[i])) {
+         int32_t relative_offset = (int32_t)SEXT((words[i] >> 8) & MASK(24), 24);
+         int32_t dest_idx = (int32_t)i + 1 + relative_offset;
+         if (dest_idx >= 0 && dest_idx < (int32_t)instruction_count) {
+            program[i].branch_target_idx = dest_idx;
+         }
       }
    }
-   fprintf(fp, "\\n");
+
+   program_ctx = NULL;
+
+   for (uint32_t i = 0; i < executable_limit; i++) {
+      if (program[i].is_branch && program[i].branch_target_idx != -1) {
+         uint32_t target = program[i].branch_target_idx;
+         if (target < instruction_count) {
+            uint32_t cnt = program[target].num_incoming_branches;
+            if (cnt < 16) {
+               program[target].incoming_branch_offsets[cnt] = i * 8;
+               program[target].num_incoming_branches++;
+            }
+         }
+      }
+   }
+
+   bool change = true;
+   uint64_t global_divergence_mask = 0;
+
+   while (change) {
+      change = false;
+      for (int32_t i = (int32_t)executable_limit - 1; i >= 0; i--) {
+         uint64_t next_live_regs = 0;
+         uint8_t next_live_stack[MAX_STACK_SLOTS];
+         memset(next_live_stack, 0, MAX_STACK_SLOTS);
+
+         if (i == (int32_t)executable_limit - 1) {
+            next_live_regs = 0;
+         } else {
+            next_live_regs = program[i + 1].live_regs_in;
+            memcpy(next_live_stack, program[i + 1].live_stack_in, MAX_STACK_SLOTS);
+         }
+
+         if (program[i].branch_target_idx != -1) {
+            uint32_t target = program[i].branch_target_idx;
+            next_live_regs |= program[target].live_regs_in;
+            for (int s = 0; s < MAX_STACK_SLOTS; s++) {
+               if (program[target].live_stack_in[s]) next_live_stack[s] = 1;
+            }
+         }
+
+         if (program[i].is_reconverge = (((words[i] >> 56) & 0x1) == 0x1)) {
+            global_divergence_mask = 0;
+         }
+         if (program[i].is_branch) {
+            uint32_t target = program[i].branch_target_idx;
+            if (target != -1) {
+               global_divergence_mask |= program[target].live_regs_in;
+            }
+         }
+
+         next_live_regs |= global_divergence_mask;
+
+         if (program[i].live_regs_out != next_live_regs) {
+            program[i].live_regs_out = next_live_regs;
+            change = true;
+         }
+
+         uint64_t computed_regs_in = program[i].gen_mask | (program[i].live_regs_out & ~program[i].def_mask);
+         if (program[i].live_regs_in != computed_regs_in) {
+            program[i].live_regs_in = computed_regs_in;
+            change = true;
+         }
+
+         if (program[i].stack_slot != -1) {
+            if (program[i].is_load) {
+               next_live_stack[program[i].stack_slot] = 1;
+            } else if (program[i].is_store) {
+               next_live_stack[program[i].stack_slot] = 0;
+            }
+         }
+
+         if (memcmp(program[i].live_stack_out, next_live_stack, MAX_STACK_SLOTS) != 0) {
+            memcpy(program[i].live_stack_out, next_live_stack, MAX_STACK_SLOTS);
+            change = true;
+         }
+
+         uint8_t computed_stack_in[MAX_STACK_SLOTS];
+         memcpy(computed_stack_in, next_live_stack, MAX_STACK_SLOTS);
+         if (program[i].stack_slot != -1 && program[i].is_load) {
+            computed_stack_in[program[i].stack_slot] = 1;
+         }
+
+         if (memcmp(program[i].live_stack_in, computed_stack_in, MAX_STACK_SLOTS) != 0) {
+            memcpy(program[i].live_stack_in, computed_stack_in, MAX_STACK_SLOTS);
+            change = true;
+         }
+      }
+   }
+
+    bool in_data_section = false;
+    fprintf(fp, ".text: // %u instructions\\n", executable_limit);
+
+    for (unsigned i = 0; i < instruction_count; ++i) {
+        uint64_t instr = words[i];
+        unsigned current_offset = i * 8;
+
+        if (in_data_section) {
+        uint32_t row_bytes = 8;
+        uint64_t next_instr = 0;
+        if (i + 1 < instruction_count) {
+            next_instr = words[i + 1];
+            row_bytes = 16;
+        }
+        uint32_t q0 = (uint32_t)(instr & 0xFFFFFFFF);
+        uint32_t q1 = (uint32_t)(instr >> 32);
+        uint32_t q2 = (uint32_t)(next_instr & 0xFFFFFFFF);
+        uint32_t q3 = (uint32_t)(next_instr >> 32);
+
+        unsigned char db[16];
+        memcpy(&db[0], &instr, 8);
+        if (row_bytes == 16) {
+            memcpy(&db[8], &next_instr, 8);
+            fprintf(fp, "/* [0x%04X] */  %08X %08X %08X %08X  | ", current_offset, q0, q1, q2, q3);
+        } else {
+            memset(&db[8], 0, 8);
+            fprintf(fp, "/* [0x%04X] */  %08X %08X -------- --------  | ", current_offset, q0, q1);
+        }
+        for (int j = 0; j < 16; j++) {
+            if (j < (int)row_bytes) {
+                fprintf(fp, "%c", (db[j] >= 32 && db[j] <= 126) ? db[j] : '.');
+            } else {
+                fprintf(fp, " ");
+            }
+        }
+        fprintf(fp, " |\\n");
+        if (row_bytes == 16) i++;
+        continue;
+        }
+
+        bool is_jump_target = (program[i].num_incoming_branches > 0);
+        bool is_branch_instr = program[i].is_branch;
+        bool is_above_jump_target = (i + 1 < executable_limit) && (program[i + 1].num_incoming_branches > 0);
+
+        bool live_flows_sequentially = false;
+        if (i + 1 < executable_limit) {
+            live_flows_sequentially = (program[i].live_regs_out == program[i + 1].live_regs_in);
+        }
+
+        bool show_as_generic_live = live_flows_sequentially && !is_jump_target;
+        if (is_jump_target) {
+        fprintf(fp, "/* Jump target from: ");
+        for (uint32_t b = 0; b < program[i].num_incoming_branches; b++) {
+            fprintf(fp, "0x%04X%s", program[i].incoming_branch_offsets[b], (b == program[i].num_incoming_branches - 1) ? "" : ", ");
+        }
+        fprintf(fp, " */\\n");
+        }
+
+        if (show_as_generic_live) {
+            va_print_live_set_ranges(fp, "live", program[i].live_regs_in);
+        } else {
+            va_print_live_set_ranges(fp, "live-in", program[i].live_regs_in);
+        }
+
+        fprintf(fp, "%4u [0x%04X] %016llX   ", i, current_offset, (unsigned long long)instr);
+        va_disasm_instr(fp, instr, ctx, i, first_def_idx);
+
+        if (is_branch_instr && program[i].branch_target_idx != -1) {
+            fprintf(fp, " /* jumps to 0x%04X (instruction #%u) */",
+                program[i].branch_target_idx * 8, program[i].branch_target_idx);
+        }
+        fprintf(fp, "\\n");
+        bool force_live_out = is_branch_instr || is_above_jump_target || !live_flows_sequentially;
+
+        if (force_live_out) {
+        va_print_live_set_ranges(fp, "live-out", program[i].live_regs_out);
+            fprintf(fp, "\\n");
+        }
+
+        if (((instr >> 59) & 0x0F) == 0x0F) {
+            in_data_section = true;
+            fprintf(fp, ".rodata: // %lu bytes\\n", size - (executable_limit * 8));
+        }
+    }
+
+    free(program);
+    fprintf(fp, "\\n");
 }
 """
 

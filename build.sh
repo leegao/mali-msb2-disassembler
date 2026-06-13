@@ -7,5 +7,5 @@ uv run python disasm.py --xml ISA.xml >> disassemble.c
 gcc sample_mbs2_shader.c disassemble.c -o sample_mbs2_shader.out
 ./sample_mbs2_shader.out
 
-gcc astc_encoder_mbs2_shader.c disassemble.c -o astc_encoder_mbs2_shader.out
-./astc_encoder_mbs2_shader.out
+# gcc astc_encoder_mbs2_shader.c disassemble.c -o astc_encoder_mbs2_shader.out
+# ./astc_encoder_mbs2_shader.out
