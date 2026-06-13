@@ -14647,7 +14647,6 @@ disassemble_valhall(FILE *fp, const void *code, size_t size, bool verbose, const
    }
 
    bool change = true;
-   uint64_t global_divergence_mask = 0;
 
    while (change) {
       change = false;
@@ -14670,18 +14669,6 @@ disassemble_valhall(FILE *fp, const void *code, size_t size, bool verbose, const
                if (program[target].live_stack_in[s]) next_live_stack[s] = 1;
             }
          }
-
-         if (program[i].is_reconverge = (((words[i] >> 56) & 0x1) == 0x1)) {
-            global_divergence_mask = 0;
-         }
-         if (program[i].is_branch) {
-            uint32_t target = program[i].branch_target_idx;
-            if (target != -1) {
-               global_divergence_mask |= program[target].live_regs_in;
-            }
-         }
-
-         next_live_regs |= global_divergence_mask;
 
          if (program[i].live_regs_out != next_live_regs) {
             program[i].live_regs_out = next_live_regs;
