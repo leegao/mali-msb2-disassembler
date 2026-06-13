@@ -19,18 +19,6 @@ const moduleName = "libMali-Gxx_r55p0-00rel0.so"; // this is an x86_64 library, 
 const cmpbe_v2_compile_multiple_shaders = 0x001c8400; // offset of cmpbe_v2_compile_multiple_shaders
 const cmpbe_v2_deserialize_MBS2_to_C = 0x001cada0; // cmpbe_v2_deserialize_MBS2_to_C
 
-function getShaderPreview(srcPtr, len) {
-    if (srcPtr.isNull() || len === 0) return "[NULL]";
-    return (
-        `[SPIRV]\n` +
-        hexdump(srcPtr, {
-            length: Math.min(len, 64),
-            header: true,
-            answers: true,
-        })
-    );
-}
-
 waitForModule(moduleName, (moduleBase) => {
     if (moduleBase !== null) {
         const targetAddress = moduleBase.add(cmpbe_v2_compile_multiple_shaders);
