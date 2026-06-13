@@ -267,15 +267,69 @@ va_print_dest(FILE *fp, unsigned mask, unsigned value, unsigned size, unsigned i
          % for src in op.srcs:
             if (((instr >> ${src.offset['mode']}) & ${src.mask['mode']}) <= 1) {
                uint32_t r = (instr >> ${src.offset['value']}) & ${hex(src.mask['value'])};
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                  % if src.size == 64:
+                     % if src.swizzle or src.widen:
+                        <%
+                           swz_field = src.offset.get('swizzle', src.offset.get('widen'))
+                           swz_mask = src.mask.get('swizzle', src.mask.get('widen'))
+                        %>
+                        unsigned swz = (instr >> ${swz_field}) & ${hex(swz_mask)};
+                        if ((swz & 1) == 0) {
+                           ai->gen_mask |= BIT(r);
+                        } else {
+                           ai->gen_mask |= BIT(r + 1);
+                        }
+                     % else:
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+                     % endif
+                  % else:
+                     ai->gen_mask |= BIT(r);
+                  % endif
+               }
             }
          % endfor
+
+         % for index, sr in enumerate(op.staging):
+            <%
+               # Determine structural staging size dynamically
+               sr_count = sr.count if sr.count != 0 else 1
+               for mod in op.modifiers:
+                  if mod.name == "staging_register_write_count" and sr.write:
+                     sr_count = f"(((instr >> {mod.start}) & {hex((1 << mod.size) - 1)}) + 1)"
+                  elif mod.name == "staging_register_count":
+                     sr_count = f"((instr >> {mod.start}) & {hex((1 << mod.size) - 1)})"
+            %>
+            {
+               uint32_t base_r = (instr >> ${sr.offset['value']}) & ${hex(sr.mask['value'])};
+               uint32_t count = ${sr_count};
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                     % if op.name.startswith("STORE"):
+                        // STORE reads from staging registers to push to memory
+                        ai->gen_mask |= BIT(base_r + i);
+                     % else:
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                     % endif
+                  }
+               }
+            }
+         % endfor
+
          % for dest in op.dests:
             if (((instr >> ${dest.offset['mode']}) & ${dest.mask['mode']}) != 0xC0) {
                uint32_t r = (instr >> ${dest.offset['value']}) & ${hex(dest.mask['value'])};
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                  % if dest.size == 64:
+                     ai->def_mask |= BIT(r) | BIT(r + 1);
+                  % else:
+                     ai->def_mask |= BIT(r);
+                  % endif
+               }
             }
          % endfor
+
          % if op.name.startswith("LOAD") or op.name.startswith("STORE"):
             if (((instr >> 6) & 0x3) != VA_SRC_UNIFORM_TYPE) {
                uint32_t parsed_offset = (instr >> 16) & 0xFFFF;

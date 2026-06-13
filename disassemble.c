@@ -850,6 +850,9 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
 
       if (!fp && program_ctx) {
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
+
+
+
          return;
       }
 
@@ -868,8 +871,13 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
+
          return;
       }
 
@@ -896,12 +904,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
+
          return;
       }
 
@@ -932,12 +947,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
+
          return;
       }
 
@@ -965,6 +987,9 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
 
       if (!fp && program_ctx) {
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
+
+
+
          return;
       }
 
@@ -984,24 +1009,37 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 30) & 3) <= 1) {
                uint32_t r = (instr >> 24) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -1039,24 +1077,37 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 30) & 3) <= 1) {
                uint32_t r = (instr >> 24) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -1094,24 +1145,37 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 30) & 3) <= 1) {
                uint32_t r = (instr >> 24) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -1149,24 +1213,37 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 30) & 3) <= 1) {
                uint32_t r = (instr >> 24) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -1204,24 +1281,37 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 30) & 3) <= 1) {
                uint32_t r = (instr >> 24) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -1259,24 +1349,37 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 30) & 3) <= 1) {
                uint32_t r = (instr >> 24) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -1314,8 +1417,24 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -1349,6 +1468,20 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
 
       if (!fp && program_ctx) {
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -1378,8 +1511,24 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -1411,8 +1560,24 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -1448,8 +1613,24 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -1485,12 +1666,30 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -1528,12 +1727,30 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -1571,12 +1788,30 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -1614,8 +1849,24 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -1653,8 +1904,24 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -1684,6 +1951,20 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
 
       if (!fp && program_ctx) {
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -1720,12 +2001,30 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -1765,12 +2064,30 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -1819,16 +2136,36 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -1868,16 +2205,36 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -1919,6 +2276,20 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
 
       if (!fp && program_ctx) {
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -1949,12 +2320,30 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -1992,12 +2381,30 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -2044,16 +2451,36 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -2092,16 +2519,36 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -2149,12 +2596,30 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -2190,12 +2655,30 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -2231,12 +2714,30 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -2272,12 +2773,30 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -2313,12 +2832,30 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -2354,12 +2891,30 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -2395,12 +2950,30 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -2436,12 +3009,30 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -2481,12 +3072,30 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -2520,8 +3129,24 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -2560,8 +3185,24 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
             if (((instr >> 6) & 0x3) != VA_SRC_UNIFORM_TYPE) {
                uint32_t parsed_offset = (instr >> 16) & 0xFFFF;
                if (parsed_offset < MAX_STACK_SLOTS) {
@@ -2603,8 +3244,24 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
             if (((instr >> 6) & 0x3) != VA_SRC_UNIFORM_TYPE) {
                uint32_t parsed_offset = (instr >> 16) & 0xFFFF;
                if (parsed_offset < MAX_STACK_SLOTS) {
@@ -2646,8 +3303,24 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
             if (((instr >> 6) & 0x3) != VA_SRC_UNIFORM_TYPE) {
                uint32_t parsed_offset = (instr >> 16) & 0xFFFF;
                if (parsed_offset < MAX_STACK_SLOTS) {
@@ -2689,8 +3362,24 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
             if (((instr >> 6) & 0x3) != VA_SRC_UNIFORM_TYPE) {
                uint32_t parsed_offset = (instr >> 16) & 0xFFFF;
                if (parsed_offset < MAX_STACK_SLOTS) {
@@ -2732,8 +3421,24 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
             if (((instr >> 6) & 0x3) != VA_SRC_UNIFORM_TYPE) {
                uint32_t parsed_offset = (instr >> 16) & 0xFFFF;
                if (parsed_offset < MAX_STACK_SLOTS) {
@@ -2775,8 +3480,24 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
             if (((instr >> 6) & 0x3) != VA_SRC_UNIFORM_TYPE) {
                uint32_t parsed_offset = (instr >> 16) & 0xFFFF;
                if (parsed_offset < MAX_STACK_SLOTS) {
@@ -2818,8 +3539,24 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
             if (((instr >> 6) & 0x3) != VA_SRC_UNIFORM_TYPE) {
                uint32_t parsed_offset = (instr >> 16) & 0xFFFF;
                if (parsed_offset < MAX_STACK_SLOTS) {
@@ -2861,8 +3598,24 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
             if (((instr >> 6) & 0x3) != VA_SRC_UNIFORM_TYPE) {
                uint32_t parsed_offset = (instr >> 16) & 0xFFFF;
                if (parsed_offset < MAX_STACK_SLOTS) {
@@ -2913,8 +3666,24 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // STORE reads from staging registers to push to memory
+                        ai->gen_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
             if (((instr >> 6) & 0x3) != VA_SRC_UNIFORM_TYPE) {
                uint32_t parsed_offset = (instr >> 16) & 0xFFFF;
                if (parsed_offset < MAX_STACK_SLOTS) {
@@ -2954,8 +3723,24 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // STORE reads from staging registers to push to memory
+                        ai->gen_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
             if (((instr >> 6) & 0x3) != VA_SRC_UNIFORM_TYPE) {
                uint32_t parsed_offset = (instr >> 16) & 0xFFFF;
                if (parsed_offset < MAX_STACK_SLOTS) {
@@ -2995,8 +3780,24 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // STORE reads from staging registers to push to memory
+                        ai->gen_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
             if (((instr >> 6) & 0x3) != VA_SRC_UNIFORM_TYPE) {
                uint32_t parsed_offset = (instr >> 16) & 0xFFFF;
                if (parsed_offset < MAX_STACK_SLOTS) {
@@ -3036,8 +3837,24 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // STORE reads from staging registers to push to memory
+                        ai->gen_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
             if (((instr >> 6) & 0x3) != VA_SRC_UNIFORM_TYPE) {
                uint32_t parsed_offset = (instr >> 16) & 0xFFFF;
                if (parsed_offset < MAX_STACK_SLOTS) {
@@ -3077,8 +3894,24 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // STORE reads from staging registers to push to memory
+                        ai->gen_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
             if (((instr >> 6) & 0x3) != VA_SRC_UNIFORM_TYPE) {
                uint32_t parsed_offset = (instr >> 16) & 0xFFFF;
                if (parsed_offset < MAX_STACK_SLOTS) {
@@ -3118,8 +3951,24 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // STORE reads from staging registers to push to memory
+                        ai->gen_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
             if (((instr >> 6) & 0x3) != VA_SRC_UNIFORM_TYPE) {
                uint32_t parsed_offset = (instr >> 16) & 0xFFFF;
                if (parsed_offset < MAX_STACK_SLOTS) {
@@ -3159,8 +4008,24 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // STORE reads from staging registers to push to memory
+                        ai->gen_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
             if (((instr >> 6) & 0x3) != VA_SRC_UNIFORM_TYPE) {
                uint32_t parsed_offset = (instr >> 16) & 0xFFFF;
                if (parsed_offset < MAX_STACK_SLOTS) {
@@ -3200,8 +4065,24 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // STORE reads from staging registers to push to memory
+                        ai->gen_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
             if (((instr >> 6) & 0x3) != VA_SRC_UNIFORM_TYPE) {
                uint32_t parsed_offset = (instr >> 16) & 0xFFFF;
                if (parsed_offset < MAX_STACK_SLOTS) {
@@ -3245,12 +4126,30 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -3284,12 +4183,30 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -3328,12 +4245,30 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -3372,16 +4307,36 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -3421,16 +4376,36 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -3470,12 +4445,30 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -3513,16 +4506,36 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -3560,16 +4573,36 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -3614,12 +4647,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -3646,12 +4686,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -3678,12 +4725,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -3710,12 +4764,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -3742,12 +4803,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -3773,12 +4841,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -3804,12 +4879,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -3835,12 +4917,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -3866,12 +4955,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -3898,12 +4994,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -3930,12 +5033,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -3963,12 +5073,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -3996,12 +5113,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -4029,12 +5153,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -4062,12 +5193,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -4095,12 +5233,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -4126,12 +5271,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -4157,12 +5309,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -4188,12 +5347,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -4219,12 +5385,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -4250,12 +5423,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -4281,12 +5461,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -4312,12 +5499,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -4343,12 +5537,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -4376,12 +5577,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -4418,12 +5626,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -4448,12 +5663,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -4478,12 +5700,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -4509,12 +5738,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -4539,12 +5775,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -4570,12 +5813,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -4601,12 +5851,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -4631,12 +5888,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -4661,12 +5925,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -4691,12 +5962,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -4730,12 +6008,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
          return;
       }
 
@@ -4764,12 +6049,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -4800,12 +6092,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -4835,12 +6134,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -4879,12 +6185,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -4912,12 +6225,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -4945,12 +6265,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -4978,12 +6305,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -5020,12 +6354,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -5052,12 +6393,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -5084,12 +6432,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -5116,12 +6471,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -5148,12 +6510,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -5180,12 +6549,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -5212,12 +6588,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -5244,12 +6627,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -5276,12 +6666,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -5308,12 +6705,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -5340,12 +6744,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -5370,12 +6781,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -5400,12 +6818,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -5430,12 +6855,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -5469,16 +6901,25 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -5514,16 +6955,25 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -5557,16 +7007,25 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -5600,16 +7059,25 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -5640,16 +7108,25 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -5680,16 +7157,25 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -5721,16 +7207,25 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -5769,16 +7264,25 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -5814,16 +7318,25 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -5857,16 +7370,25 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -5900,16 +7422,25 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -5942,16 +7473,25 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -5991,16 +7531,25 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -6032,16 +7581,25 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -6073,16 +7631,25 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -6114,16 +7681,25 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -6155,16 +7731,25 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -6206,16 +7791,25 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -6247,16 +7841,25 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -6287,16 +7890,25 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -6328,16 +7940,25 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -6369,16 +7990,25 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -6419,16 +8049,25 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -6460,16 +8099,25 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -6501,16 +8149,25 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -6542,16 +8199,25 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -6592,16 +8258,25 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -6633,16 +8308,25 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -6674,16 +8358,25 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -6715,16 +8408,25 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -6765,16 +8467,25 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -6806,16 +8517,25 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -6847,16 +8567,25 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -6888,16 +8617,25 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -6938,16 +8676,25 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -6979,16 +8726,25 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -7020,16 +8776,25 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -7061,16 +8826,25 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -7111,16 +8885,37 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        
+                        unsigned swz = (instr >> 36) & 0xf;
+                        if ((swz & 1) == 0) {
+                           ai->gen_mask |= BIT(r);
+                        } else {
+                           ai->gen_mask |= BIT(r + 1);
+                        }
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        
+                        unsigned swz = (instr >> 26) & 0xf;
+                        if ((swz & 1) == 0) {
+                           ai->gen_mask |= BIT(r);
+                        } else {
+                           ai->gen_mask |= BIT(r + 1);
+                        }
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
          return;
       }
 
@@ -7152,16 +8947,37 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        
+                        unsigned swz = (instr >> 36) & 0xf;
+                        if ((swz & 1) == 0) {
+                           ai->gen_mask |= BIT(r);
+                        } else {
+                           ai->gen_mask |= BIT(r + 1);
+                        }
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        
+                        unsigned swz = (instr >> 26) & 0xf;
+                        if ((swz & 1) == 0) {
+                           ai->gen_mask |= BIT(r);
+                        } else {
+                           ai->gen_mask |= BIT(r + 1);
+                        }
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
          return;
       }
 
@@ -7193,16 +9009,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        
+                        unsigned swz = (instr >> 26) & 0xf;
+                        if ((swz & 1) == 0) {
+                           ai->gen_mask |= BIT(r);
+                        } else {
+                           ai->gen_mask |= BIT(r + 1);
+                        }
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
          return;
       }
 
@@ -7234,16 +9065,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        
+                        unsigned swz = (instr >> 26) & 0xf;
+                        if ((swz & 1) == 0) {
+                           ai->gen_mask |= BIT(r);
+                        } else {
+                           ai->gen_mask |= BIT(r + 1);
+                        }
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
          return;
       }
 
@@ -7275,16 +9121,37 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        
+                        unsigned swz = (instr >> 36) & 0xf;
+                        if ((swz & 1) == 0) {
+                           ai->gen_mask |= BIT(r);
+                        } else {
+                           ai->gen_mask |= BIT(r + 1);
+                        }
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        
+                        unsigned swz = (instr >> 26) & 0xf;
+                        if ((swz & 1) == 0) {
+                           ai->gen_mask |= BIT(r);
+                        } else {
+                           ai->gen_mask |= BIT(r + 1);
+                        }
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
          return;
       }
 
@@ -7325,16 +9192,37 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        
+                        unsigned swz = (instr >> 36) & 0xf;
+                        if ((swz & 1) == 0) {
+                           ai->gen_mask |= BIT(r);
+                        } else {
+                           ai->gen_mask |= BIT(r + 1);
+                        }
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        
+                        unsigned swz = (instr >> 26) & 0xf;
+                        if ((swz & 1) == 0) {
+                           ai->gen_mask |= BIT(r);
+                        } else {
+                           ai->gen_mask |= BIT(r + 1);
+                        }
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
          return;
       }
 
@@ -7366,16 +9254,37 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        
+                        unsigned swz = (instr >> 36) & 0xf;
+                        if ((swz & 1) == 0) {
+                           ai->gen_mask |= BIT(r);
+                        } else {
+                           ai->gen_mask |= BIT(r + 1);
+                        }
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        
+                        unsigned swz = (instr >> 26) & 0xf;
+                        if ((swz & 1) == 0) {
+                           ai->gen_mask |= BIT(r);
+                        } else {
+                           ai->gen_mask |= BIT(r + 1);
+                        }
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
          return;
       }
 
@@ -7407,16 +9316,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        
+                        unsigned swz = (instr >> 26) & 0xf;
+                        if ((swz & 1) == 0) {
+                           ai->gen_mask |= BIT(r);
+                        } else {
+                           ai->gen_mask |= BIT(r + 1);
+                        }
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
          return;
       }
 
@@ -7452,20 +9376,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -7506,20 +9441,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -7565,20 +9511,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -7615,20 +9572,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -7666,20 +9634,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -7716,20 +9695,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -7767,20 +9757,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -7817,20 +9818,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -7877,20 +9889,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -7927,20 +9950,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -7978,20 +10012,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -8028,20 +10073,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -8079,20 +10135,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -8129,20 +10196,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -8189,20 +10267,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -8239,20 +10328,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -8290,20 +10390,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -8340,20 +10451,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -8391,20 +10513,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -8441,20 +10574,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -8501,20 +10645,37 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        
+                        unsigned swz = (instr >> 36) & 0xf;
+                        if ((swz & 1) == 0) {
+                           ai->gen_mask |= BIT(r);
+                        } else {
+                           ai->gen_mask |= BIT(r + 1);
+                        }
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
          return;
       }
 
@@ -8551,20 +10712,37 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        
+                        unsigned swz = (instr >> 36) & 0xf;
+                        if ((swz & 1) == 0) {
+                           ai->gen_mask |= BIT(r);
+                        } else {
+                           ai->gen_mask |= BIT(r + 1);
+                        }
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
          return;
       }
 
@@ -8602,20 +10780,37 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        
+                        unsigned swz = (instr >> 36) & 0xf;
+                        if ((swz & 1) == 0) {
+                           ai->gen_mask |= BIT(r);
+                        } else {
+                           ai->gen_mask |= BIT(r + 1);
+                        }
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
          return;
       }
 
@@ -8652,20 +10847,37 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        
+                        unsigned swz = (instr >> 36) & 0xf;
+                        if ((swz & 1) == 0) {
+                           ai->gen_mask |= BIT(r);
+                        } else {
+                           ai->gen_mask |= BIT(r + 1);
+                        }
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
          return;
       }
 
@@ -8703,20 +10915,37 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        
+                        unsigned swz = (instr >> 36) & 0xf;
+                        if ((swz & 1) == 0) {
+                           ai->gen_mask |= BIT(r);
+                        } else {
+                           ai->gen_mask |= BIT(r + 1);
+                        }
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
          return;
       }
 
@@ -8753,20 +10982,37 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        
+                        unsigned swz = (instr >> 36) & 0xf;
+                        if ((swz & 1) == 0) {
+                           ai->gen_mask |= BIT(r);
+                        } else {
+                           ai->gen_mask |= BIT(r + 1);
+                        }
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
          return;
       }
 
@@ -8808,20 +11054,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -8855,20 +11112,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -8905,20 +11173,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -8957,20 +11236,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -9005,20 +11295,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -9057,20 +11358,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -9105,20 +11417,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -9154,20 +11477,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -9208,20 +11542,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -9255,20 +11600,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -9311,20 +11667,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -9361,20 +11728,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -9411,20 +11789,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -9470,20 +11859,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -9520,20 +11920,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -9579,20 +11990,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -9629,20 +12051,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -9688,20 +12121,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -9740,20 +12184,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -9801,20 +12256,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -9853,20 +12319,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -9914,20 +12391,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -9964,20 +12452,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -10014,20 +12513,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -10073,20 +12583,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -10123,20 +12644,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -10182,20 +12714,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -10232,20 +12775,31 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -10286,12 +12840,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -10318,12 +12879,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -10350,12 +12918,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -10382,12 +12957,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -10414,12 +12996,19 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -10451,8 +13040,24 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -10485,8 +13090,24 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -10528,8 +13149,24 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -10562,8 +13199,24 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -10605,8 +13258,35 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 16) & 0x3f;
+               uint32_t count = (((instr >> 36) & 0x7) + 1);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -10647,8 +13327,35 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 16) & 0x3f;
+               uint32_t count = (((instr >> 36) & 0x7) + 1);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -10693,8 +13400,35 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 16) & 0x3f;
+               uint32_t count = (((instr >> 36) & 0x7) + 1);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -10739,8 +13473,35 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 16) & 0x3f;
+               uint32_t count = (((instr >> 36) & 0x7) + 1);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -10787,8 +13548,35 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 16) & 0x3f;
+               uint32_t count = (((instr >> 36) & 0x7) + 1);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -10836,8 +13624,35 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 16) & 0x3f;
+               uint32_t count = (((instr >> 36) & 0x7) + 1);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -10882,8 +13697,35 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 16) & 0x3f;
+               uint32_t count = (((instr >> 36) & 0x7) + 1);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = ((instr >> 33) & 0x7);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -10931,12 +13773,30 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = (((instr >> 36) & 0x7) + 1);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -10978,12 +13838,30 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = (((instr >> 36) & 0x7) + 1);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -11026,12 +13904,30 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = (((instr >> 36) & 0x7) + 1);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -11074,12 +13970,30 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = (((instr >> 36) & 0x7) + 1);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -11121,12 +14035,30 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = (((instr >> 36) & 0x7) + 1);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -11168,12 +14100,30 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = (((instr >> 36) & 0x7) + 1);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -11216,12 +14166,30 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = (((instr >> 36) & 0x7) + 1);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -11264,12 +14232,30 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                        ai->gen_mask |= BIT(r) | BIT(r + 1);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+            
+            {
+               uint32_t base_r = (instr >> 40) & 0x3f;
+               uint32_t count = (((instr >> 36) & 0x7) + 1);
+               for (uint32_t i = 0; i < count; ++i) {
+                  if (base_r + i < 64) {
+                        // LOAD and texture samples write into staging registers
+                        ai->def_mask |= BIT(base_r + i);
+                  }
+               }
+            }
+
+
          return;
       }
 
@@ -11311,24 +14297,37 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 30) & 3) <= 1) {
                uint32_t r = (instr >> 24) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -11369,24 +14368,37 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 30) & 3) <= 1) {
                uint32_t r = (instr >> 24) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -11427,24 +14439,37 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 30) & 3) <= 1) {
                uint32_t r = (instr >> 24) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
@@ -11485,24 +14510,37 @@ va_disasm_instr(FILE *fp, uint64_t instr, const cmpbe_chunk_CMMN *ctx, unsigned 
          AnalyzedInstruction *ai = &program_ctx[instr_idx];
             if (((instr >> 6) & 3) <= 1) {
                uint32_t r = (instr >> 0) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 14) & 3) <= 1) {
                uint32_t r = (instr >> 8) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 22) & 3) <= 1) {
                uint32_t r = (instr >> 16) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
             if (((instr >> 30) & 3) <= 1) {
                uint32_t r = (instr >> 24) & 0x3f;
-               if (r < 64) ai->gen_mask |= BIT(r);
+               if (r < 64) {
+                     ai->gen_mask |= BIT(r);
+               }
             }
+
+
             if (((instr >> 46) & 3) != 0xC0) {
                uint32_t r = (instr >> 40) & 0x3f;
-               if (r < 64) ai->def_mask |= BIT(r);
+               if (r < 64) {
+                     ai->def_mask |= BIT(r);
+               }
             }
+
          return;
       }
 
