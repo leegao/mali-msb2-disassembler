@@ -198,12 +198,8 @@ va_print_src(FILE *fp, unsigned type, unsigned value, unsigned size, unsigned fa
             }
          }
          if (!matched_meta) {
-            for (uint32_t b = 0; b < ctx->ssym_43.count; b++) {
-               if (ctx->ssym_43.symbols[b].binding_id == pair_index) {
-                  fprintf(fp, " /* @%s */", ctx->ssym_43.symbols[b].name.string_data);
-                  break;
-               }
-            }
+            // pair_index is actually not the binding id, but the symbol index
+            fprintf(fp, " /* @%s */", ctx->ssym_43.symbols[pair_index].name.string_data);
          }
       }
    } else {
