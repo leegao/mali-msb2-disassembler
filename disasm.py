@@ -118,6 +118,20 @@ va_print_live_set_ranges(FILE *fp, const char *prefix, uint64_t mask)
    fprintf(fp, " (%u vregs)\\n", total_vregs);
 }
 
+const char *
+va_get_resource_name(const cmpbe_chunk_CMMN *ctx, unsigned type, unsigned value, unsigned fau_page)
+{
+    if (!ctx || type != VA_SRC_UNIFORM_TYPE) {
+        return NULL;
+    }
+    unsigned pair_index = (value >> 1) | (fau_page << 5);
+    if (ctx->ssym_43.symbols && ctx->ssym_43.symbols[pair_index].name.string_data) {
+        return (const char *)ctx->ssym_43.symbols[pair_index].name.string_data;
+    }
+
+    return NULL;
+}
+
 static inline void
 va_print_src(FILE *fp, unsigned type, unsigned value, unsigned size, unsigned fau_page,
              const cmpbe_chunk_CMMN *ctx, unsigned instr_idx, const uint32_t *first_def_idx)
@@ -343,6 +357,26 @@ va_print_dest(FILE *fp, unsigned mask, unsigned value, unsigned size, unsigned i
       }
 
 <% no_comma = True %>
+% if op.name.startswith("ATOM1_RETURN"):
+   {
+      % if len(op.srcs) > 0:
+         <% src = op.srcs[0] %>
+         unsigned src0_type = (instr >> ${src.offset['mode']}) & ${src.mask['mode']};
+         unsigned src0_val  = (instr >> ${src.offset['value']}) & ${hex(src.mask['value'])};
+         unsigned fau_page  = (instr >> ${op.offset['fau_page']}) & ${hex(op.mask['fau_page'])};
+         unsigned atomic_op = (instr >> 22) & 0xF;
+
+         if (atomic_op == 0) { // ".ainc"
+             const char *res_name = va_get_resource_name(ctx, src0_type, src0_val, fau_page);
+             if (res_name && strstr(res_name, "_DEBUG_LINE_BUFFER_")) {
+                 uint32_t parsed_offset = (instr >> 8) & 0xFFFF;
+                 fprintf(fp, ">>> DEBUG_INFO: line %u <<<", parsed_offset / 4);
+                 return;
+             }
+         }
+      % endif
+   }
+% endif
       fputs("${op.name}", fp);
 % for mod in op.modifiers:
 % if mod.name not in ["staging_register_count", "staging_register_write_count"]:

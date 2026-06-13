@@ -4,6 +4,9 @@ StructuredBuffer<uint> input;
 [[vk::binding(1, 0)]]
 RWStructuredBuffer<uint> output;
 
+RWStructuredBuffer<uint> __DEBUG_LINE_BUFFER__;
+#define MARK() InterlockedAdd(__DEBUG_LINE_BUFFER__[__LINE__], 1)
+
 struct PushConstants {
   int2 u_TextureDimensions;
 };
@@ -28,16 +31,20 @@ static const uint packed_trit_data[61] = {
 [shader("compute")]
 [numthreads(8, 8, 1)]
 void main(uint3 gl_GlobalInvocationID: SV_DispatchThreadID) {
+  MARK();
   int2 block_pos = int2(gl_GlobalInvocationID.xy);
   int2 tex_coord = block_pos * 4;
 
+  MARK();
   if (any(tex_coord >= pushConstants.u_TextureDimensions))
     return;
 
+  MARK();
   var buffer_index =
       block_pos.y * (pushConstants.u_TextureDimensions.x / 4) + block_pos.x;
 
-  // Encoding
+  MARK();
   output[buffer_index] =
       uint(input[buffer_index] * 3.251) + packed_trit_data[input[buffer_index]];
+  MARK();
 }

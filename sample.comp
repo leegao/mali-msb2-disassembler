@@ -1,6 +1,9 @@
 #version 450
 layout(row_major) uniform;
 layout(row_major) buffer;
+layout(std430, binding = 2) buffer StructuredBuffer_uint_t_0 {
+    uint _data[];
+} _DEBUG_LINE_BUFFER_0;
 struct PushConstants_0
 {
     ivec2 u_TextureDimensions_0;
@@ -11,23 +14,29 @@ layout(std430) uniform block_PushConstants_0
 {
     ivec2 u_TextureDimensions_0;
 }pushConstants_0;
-layout(std430, binding = 1) buffer StructuredBuffer_uint_t_0 {
+layout(std430, binding = 1) buffer StructuredBuffer_uint_t_1 {
     uint _data[];
 } output_0;
-layout(std430, binding = 0) readonly buffer StructuredBuffer_uint_t_1 {
+layout(std430, binding = 0) readonly buffer StructuredBuffer_uint_t_2 {
     uint _data[];
 } input_0;
 const uint  packed_trit_data_0[61] = { 67240192U, 151520773U, 303108106U, 404100372U, 117643801U, 454497039U, 537791756U, 623125025U, 707340326U, 875704624U, 959985205U, 791094074U, 742078259U, 1094725165U, 1178944578U, 1347045704U, 1431589457U, 1515804758U, 1397704515U, 1296849751U, 2189525070U, 2290517380U, 2442168969U, 2526385298U, 2207947160U, 2543030151U, 2391641243U, 2762121632U, 2846402213U, 2997989546U, 3098981812U, 2812525241U, 3149378479U, 3232673196U, 3318006465U, 3402221766U, 3570586064U, 3654866645U, 3485975514U, 3436959699U, 1633734349U, 1717920866U, 1886021992U, 1970565745U, 2054781046U, 1936680803U, 1835826039U, 3806453870U, 3907446244U, 4059097833U, 4143314162U, 3824876024U, 4159959015U, 4008570107U, 1008606492U, 1566326333U, 2661129310U, 3703487932U, 1059053277U, 4290748287U, 16711164U };
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 void main()
 {
-    ivec2 _S1 = ivec2(gl_GlobalInvocationID.xy);
-    if((any(bvec2((greaterThanEqual(_S1 * 4,pushConstants_0.u_TextureDimensions_0))))))
+    uint _S1 = atomicAdd(_DEBUG_LINE_BUFFER_0._data[uint(34)], 1U);
+    ivec2 _S2 = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 tex_coord_0 = _S2 * 4;
+    uint _S3 = atomicAdd(_DEBUG_LINE_BUFFER_0._data[uint(38)], 1U);
+    if((any(bvec2((greaterThanEqual(tex_coord_0,pushConstants_0.u_TextureDimensions_0))))))
     {
         return;
     }
-    int buffer_index_0 = _S1.y * (pushConstants_0.u_TextureDimensions_0.x / 4) + _S1.x;
+    uint _S4 = atomicAdd(_DEBUG_LINE_BUFFER_0._data[uint(42)], 1U);
+    int buffer_index_0 = _S2.y * (pushConstants_0.u_TextureDimensions_0.x / 4) + _S2.x;
+    uint _S5 = atomicAdd(_DEBUG_LINE_BUFFER_0._data[uint(46)], 1U);
     output_0._data[uint(buffer_index_0)] = uint(float(input_0._data[uint(buffer_index_0)]) * 3.25099992752075195) + packed_trit_data_0[input_0._data[uint(buffer_index_0)]];
+    uint _S6 = atomicAdd(_DEBUG_LINE_BUFFER_0._data[uint(49)], 1U);
     return;
 }
 

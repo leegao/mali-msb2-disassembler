@@ -11,77 +11,88 @@ Assuming you've downloaded [Arm_Performance_Studio_2026.2](https://developer.arm
 ; Size: 504 bytes, 0 bytes of scratch alloca
 ; ======================================
 
-.text: // 20 instructions
+.text: // 27 instructions
 // live: r60-r61 (2 vregs)
-   0 [0x0000] 00B4C00119C0C83D   LSHIFT_OR.i32 r0, r61 /* gl_GlobalInvocationID.y */, 0x3020100.b22, 0x0
-// live: r0,r60-r61 (3 vregs)
-   1 [0x0008] 00F8C00280C08640   ICMP_OR.s32.ge.m1 r0, r0^, u3.w0 /* pushConstants_0.u_TextureDimensions_0 + 4B */, 0x0
-// live: r0,r60-r61 (3 vregs)
-   2 [0x0010] 00B4C10119C0C83C   LSHIFT_OR.i32 r1, r60 /* gl_GlobalInvocationID.x */, 0x3020100.b22, 0x0
+   0 [0x0000] 0069400018008880   >>> DEBUG_INFO: line 34 <<<
+// live: r60-r61 (2 vregs)
+   1 [0x0008] 00B4C10119C0C83D   LSHIFT_OR.i32 r1, r61 /* gl_GlobalInvocationID.y */, 0x3020100.b22, 0x0
+// live: r1,r60-r61 (3 vregs)
+   2 [0x0010] 00F8C10280C08841   ICMP_OR.s32.ge.m1 r1, r1^, u4.w0 /* pushConstants_0.u_TextureDimensions_0 + 4B */, 0x0
+// live: r1,r60-r61 (3 vregs)
+   3 [0x0018] 00B4C00119C0C83C   LSHIFT_OR.i32 r0, r60 /* gl_GlobalInvocationID.x */, 0x3020100.b22, 0x0
 // live: r0-r1,r60-r61 (4 vregs)
-   3 [0x0018] 00F8C00280408541   ICMP_OR.s32.ge.m1 r0, r1^, u2.w1 /* pushConstants_0.u_TextureDimensions_0 */, r0^
+   4 [0x0020] 08F8C00280418740   ICMP_OR.s32.ge.m1.wait0 r0, r0^, u3.w1 /* pushConstants_0.u_TextureDimensions_0 */, r1^
 // live: r0,r60-r61 (3 vregs)
-   4 [0x0020] 001FC00000000E40   BRANCHZ r0^, offset:14 /* jumps to 0x0098 (instruction #19) */
+   5 [0x0028] 0069400058009880   >>> DEBUG_INFO: line 38 <<<
+// live: r0,r60-r61 (3 vregs)
+   6 [0x0030] 001FC00000001340   BRANCHZ r0^, offset:19 /* jumps to 0x00D0 (instruction #26) */
 // live-out: r60-r61 (2 vregs)
 
 // live: r60-r61 (2 vregs)
-   5 [0x0028] 00A0C000000A847D   IMUL.i32 r0, r61^ /* gl_GlobalInvocationID.y */, u2.w0
+   7 [0x0038] 1000C00000000000   NOP.wait1
+// live: r60-r61 (2 vregs)
+   8 [0x0040] 006940001800A880   >>> DEBUG_INFO: line 42 <<<
+// live: r60-r61 (2 vregs)
+   9 [0x0048] 00A0C000000A867D   IMUL.i32 r0, r61^ /* gl_GlobalInvocationID.y */, u3.w0 /* @(null) */
 // live: r0,r60 (2 vregs)
-   6 [0x0030] 00A0C20000007C40   IADD.u32 r2, r0^, r60^ /* gl_GlobalInvocationID.x */
+  10 [0x0050] 00A0C20000007C40   IADD.u32 r2, r0^, r60^ /* gl_GlobalInvocationID.x */
 // live: r2 (1 vregs)
-   7 [0x0038] 01A3C00020270280   SHADDX.u64 [r0:r1], u0 /* @_59_input_0 */, [r2:r3].w0, shift:0x2
+  11 [0x0058] 01A3C00020270282   SHADDX.u64 [r0:r1], u1 /* @_77_output_0 */, [r2:r3].w0, shift:0x2
 // live: r0-r2 (3 vregs)
-   8 [0x0040] 0060838218000040   LOAD.i32.unsigned.slot0 @r3, [r0^:r1^], offset:0
-// live: r2-r3 (2 vregs)
-   9 [0x0048] 01A3FE0020270282   SHADDX.u64 [r62:r63] /* clobbers gl_GlobalInvocationID.z */, u1 /* @_53_output_0 */, [r2:r3].w0, shift:0x2
-// live: r3,r62-r63 (3 vregs)
-  10 [0x0050] 0710FC000000A8FE   IADD_IMM.i32 r60 /* clobbers gl_GlobalInvocationID.x */, program_counter.w0, #0xA8
-// live: r3,r60,r62-r63 (4 vregs)
-  11 [0x0058] 0E91FD00000000FF   MOV.i32.wait0 r61 /* clobbers gl_GlobalInvocationID.y */, program_counter.w1
+  12 [0x0060] 01A3FE0020274284   SHADDX.u64 [r62:r63] /* clobbers gl_GlobalInvocationID.z */, u2 /* @_83_input_0 */, [r2^:r3^].w0, shift:0x2
+// live: r0-r1,r62-r63 (4 vregs)
+  13 [0x0068] 0710FC00000090FE   IADD_IMM.i32 r60 /* clobbers gl_GlobalInvocationID.x */, program_counter.w0, #0x90
+// live: r0-r1,r60,r62-r63 (5 vregs)
+  14 [0x0070] 0E91FD00000000FF   MOV.i32.wait0 r61 /* clobbers gl_GlobalInvocationID.y */, program_counter.w1
+// live: r0-r1,r60-r63 (6 vregs)
+  15 [0x0078] 006940005800B880   >>> DEBUG_INFO: line 46 <<<
+// live: r0-r1,r60-r63 (6 vregs)
+  16 [0x0080] 0860838218000040   LOAD.i32.unsigned.slot0.wait0 @r3, [r0^:r1^], offset:0
 // live: r3,r60-r63 (5 vregs)
-  12 [0x0060] 01A3FC002427027C   SHADDX.u64 [r60:r61], [r60^:r61^], [r2:r3].reserved, shift:0x2
+  17 [0x0088] 01A3FC002427027C   SHADDX.u64 [r60:r61], [r60^:r61^], [r2:r3].reserved, shift:0x2
 // live: r3,r60-r63 (5 vregs)
-  13 [0x0068] 006080821800007C   LOAD.i32.unsigned.slot0 @r0, [r60^:r61^], offset:0
+  18 [0x0090] 006080821800007C   LOAD.i32.unsigned.slot0 @r0, [r60^:r61^], offset:0
 // live: r0,r3,r62-r63 (4 vregs)
-  14 [0x0070] 0090FC0C00190043   U32_TO_F32 r60, r3^
+  19 [0x0098] 0090FC0C00190043   U32_TO_F32 r60, r3^
 // live: r0,r60,r62-r63 (4 vregs)
-  15 [0x0078] 00B2FC0400C0877C   FMA.f32 r60, r60^, u3.w1 /* 3.251f */, 0x0.neg
+  20 [0x00A0] 00B2FC0400C0897C   FMA.f32 r60, r60^, u4.w1 /* 3.251f */, 0x0.neg
 // live: r0,r60,r62-r63 (4 vregs)
-  16 [0x0080] 0890FC0CC01C007C   F32_TO_U32.rtz.wait0 r60, r60^
+  21 [0x00A8] 0890FC0CC01C007C   F32_TO_U32.rtz.wait0 r60, r60^
 // live: r0,r60,r62-r63 (4 vregs)
-  17 [0x0088] 00A0FD000000407C   IADD.u32 r61, r60^, r0^
+  22 [0x00B0] 10A0FD000000407C   IADD.u32.wait1 r61, r60^, r0^
 // live: r61-r63 (3 vregs)
-  18 [0x0090] 50617D021800007E   STORE.i32.slot0.reconverge @r61, [r62^:r63^], offset:0
+  23 [0x00B8] 00617D021800007E   STORE.i32.slot0 @r61, [r62^:r63^], offset:0
+// live: none (0 vregs) */
+  24 [0x00C0] 0910FF00000001C0   IADD_IMM.i32.wait0 r63, 0x0, #0x1
+// live: none (0 vregs) */
+  25 [0x00C8] 50687F021880C480   ATOM.i32.slot0.aadd.reconverge @r63, u0 /* @_12__DEBUG_LINE_BUFFER_0 */, offset:0xC4
 // live-out: none (0 vregs) */
 
-/* Jump target from: 0x0020 */
+/* Jump target from: 0x0030 */
 // live-in: none (0 vregs) */
-  19 [0x0098] 7800C00000000000   NOP.end
+  26 [0x00D0] 7800C00000000000   NOP.end
 // live-out: none (0 vregs) */
 
-.rodata: // 344 bytes
-/* [0x00A0] */  00000000 00000000 00000000 00000000  | ................ |
-/* [0x00B0] */  00000000 00000000 00000000 00000000  | ................ |
-/* [0x00C0] */  00000000 00000000 00000000 00000000  | ................ |
-/* [0x00D0] */  00000000 00000000 00000000 00000000  | ................ |
-/* [0x00E0] */  00000000 00000000 00000000 00000000  | ................ |
-/* [0x00F0] */  00000000 00000000 00000000 00000000  | ................ |
-/* [0x0100] */  04020100 09080605 1211100A 18161514  | ................ |
-/* [0x0110] */  07031A19 1B17130F 200E0D0C 25242221  | ........... !"$% |
-/* [0x0120] */  2A292826 34323130 39383635 2F27233A  | &()*01245689:#'/ |
-/* [0x0130] */  2C3B3733 41402E2D 46454442 504A4948  | 37;,-.@ABDEFHIJP |
-/* [0x0140] */  55545251 5A595856 534F4743 4D4C5B57  | QRTUVXYZCGOSW[LM |
-/* [0x0150] */  8281804E 88868584 91908A89 96959492  | N............... |
-/* [0x0160] */  839A9998 97938F87 8E8D8C9B A4A2A1A0  | ................ |
-/* [0x0170] */  A9A8A6A5 B2B1B0AA B8B6B5B4 A7A3BAB9  | ................ |
-/* [0x0180] */  BBB7B3AF C0AEADAC C5C4C2C1 CAC9C8C6  | ................ |
-/* [0x0190] */  D4D2D1D0 D9D8D6D5 CFC7C3DA CCDBD7D3  | ................ |
-/* [0x01A0] */  6160CECD 66656462 706A6968 75747271  | ..`abdefhijpqrtu |
-/* [0x01B0] */  7A797876 736F6763 6D6C7B77 E2E1E06E  | vxyzcgosw{lmn... |
-/* [0x01C0] */  E8E6E5E4 F1F0EAE9 F6F5F4F2 E3FAF9F8  | ................ |
-/* [0x01D0] */  F7F3EFE7 EEEDECFB 3C1E1D1C 5D5C3E3D  | ...........<=>\] |
-/* [0x01E0] */  9E9D9C5E DCBEBDBC 3F1FDEDD FFBF9F7F  | ^..........?.... |
-/* [0x01F0] */  00FEFDFC 00000000 -------- --------  | ........         |
+.rodata: // 288 bytes
+/* [0x00D8] */  00000000 00000000 00000000 00000000  | ................ |
+/* [0x00E8] */  00000000 00000000 00000000 00000000  | ................ |
+/* [0x00F8] */  00000000 00000000 04020100 09080605  | ................ |
+/* [0x0108] */  1211100A 18161514 07031A19 1B17130F  | ................ |
+/* [0x0118] */  200E0D0C 25242221 2A292826 34323130  | ... !"$%&()*0124 |
+/* [0x0128] */  39383635 2F27233A 2C3B3733 41402E2D  | 5689:#'/37;,-.@A |
+/* [0x0138] */  46454442 504A4948 55545251 5A595856  | BDEFHIJPQRTUVXYZ |
+/* [0x0148] */  534F4743 4D4C5B57 8281804E 88868584  | CGOSW[LMN....... |
+/* [0x0158] */  91908A89 96959492 839A9998 97938F87  | ................ |
+/* [0x0168] */  8E8D8C9B A4A2A1A0 A9A8A6A5 B2B1B0AA  | ................ |
+/* [0x0178] */  B8B6B5B4 A7A3BAB9 BBB7B3AF C0AEADAC  | ................ |
+/* [0x0188] */  C5C4C2C1 CAC9C8C6 D4D2D1D0 D9D8D6D5  | ................ |
+/* [0x0198] */  CFC7C3DA CCDBD7D3 6160CECD 66656462  | ..........`abdef |
+/* [0x01A8] */  706A6968 75747271 7A797876 736F6763  | hijpqrtuvxyzcgos |
+/* [0x01B8] */  6D6C7B77 E2E1E06E E8E6E5E4 F1F0EAE9  | w{lmn........... |
+/* [0x01C8] */  F6F5F4F2 E3FAF9F8 F7F3EFE7 EEEDECFB  | ................ |
+/* [0x01D8] */  3C1E1D1C 5D5C3E3D 9E9D9C5E DCBEBDBC  | ...<=>\]^....... |
+/* [0x01E8] */  3F1FDEDD FFBF9F7F 00FEFDFC 00000000  | ...?............ |
+
 
 ; End of Disassembly
 

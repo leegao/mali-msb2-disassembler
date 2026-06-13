@@ -4,6 +4,7 @@
 #include "disassemble.h"
 #include "cmpbe_chunks.h"
 
+#define pop
 #include "sample_mbs2_shader.h"
 
 void pretty_print_mbs2_shader(FILE *fp, const cmpbe_chunk_MBS2 *root)
