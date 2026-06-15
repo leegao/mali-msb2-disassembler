@@ -371,7 +371,27 @@ va_print_dest(FILE *fp, unsigned mask, unsigned value, unsigned size, unsigned i
              const char *res_name = va_get_resource_name(ctx, src0_type, src0_val, fau_page);
              if (res_name && strstr(res_name, "_DEBUG_LINE_BUFFER_")) {
                  uint32_t parsed_offset = (instr >> 8) & 0xFFFF;
-                 fprintf(fp, ">>> DEBUG_INFO: line %u <<<", parsed_offset / 4);
+                 fprintf(fp, ">>> DEBUG_INFO: block %u <<<", parsed_offset / 4);
+                 return;
+             }
+         }
+      % endif
+   }
+% endif
+% if op.name.startswith("ATOM."):
+   {
+      % if len(op.srcs) > 0:
+         <% src = op.srcs[0] %>
+         unsigned src0_type = (instr >> ${src.offset['mode']}) & ${src.mask['mode']};
+         unsigned src0_val  = (instr >> ${src.offset['value']}) & ${hex(src.mask['value'])};
+         unsigned fau_page  = (instr >> ${op.offset['fau_page']}) & ${hex(op.mask['fau_page'])};
+         unsigned atomic_op = (instr >> 22) & 0xF;
+
+         if (atomic_op == 2) { // ".aadd"
+             const char *res_name = va_get_resource_name(ctx, src0_type, src0_val, fau_page);
+             if (res_name && strstr(res_name, "_DEBUG_LINE_BUFFER_")) {
+                 uint32_t parsed_offset = (instr >> 8) & MASK(8);
+                 fprintf(fp, ">>> DEBUG_INFO: block %u <<<", parsed_offset / 4);
                  return;
              }
          }
