@@ -1,6 +1,9 @@
-slangc sample.slang -target glsl -line-directive-mode none > sample.comp
+# slangc sample.slang -target glsl -line-directive-mode none > sample.comp
+# rm sample_mbs2_shader.h
+# frida -f ~/Downloads/Arm_Performance_Studio_2026.2/mali_offline_compiler/malioc -l hook.js -- -c Mali-G615 --vulkan sample.comp
+
 rm sample_mbs2_shader.h
-frida -f ~/Downloads/Arm_Performance_Studio_2026.2/mali_offline_compiler/malioc -l hook.js -- -c Mali-G615 --vulkan sample.comp
+frida -f ~/Downloads/Arm_Performance_Studio_2026.2/mali_offline_compiler/malioc -l hook.js -- -c Mali-G615 --vulkan s3tc.spv
 
 echo "// AUTO-GENERATED - DO NOT EDIT" > disassemble.c
 uv run python disasm.py --xml ISA.xml >> disassemble.c
