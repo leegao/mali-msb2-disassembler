@@ -5,6 +5,8 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <stdio.h>
+
 
 #ifdef __cplusplus
 extern "C" {
@@ -280,6 +282,9 @@ typedef struct cmpbe_chunk_MBS2 {
     const void* extension_tree7;
     const void* extension_tree8;
 } cmpbe_chunk_MBS2;
+
+void
+print_ccom(FILE *fp, const cmpbe_chunk_CCOM *ccom);
 
 #ifdef __cplusplus
 }

@@ -213,7 +213,7 @@ UNUSED static const char *valhall_swizzles_64_bit[] = {
    ".b2",
    ".b3",
    ".w0",
-   ".reserved",
+   ".w1",
    ".reserved",
    ".reserved",
    ".reserved",
@@ -767,9 +767,9 @@ va_print_src(FILE *fp, unsigned type, unsigned value, unsigned size, unsigned fa
                      }
                      if (member_name) {
                         if (internal_offset == member_base) {
-                           fprintf(fp, " /* pushConstants_0.%s */", member_name);
+                           // fprintf(fp, " /* pushConstants_0.%s */", member_name);
                         } else {
-                           fprintf(fp, " /* pushConstants_0.%s + %uB */", member_name, internal_offset - member_base);
+                           // fprintf(fp, " /* pushConstants_0.%s + %uB */", member_name, internal_offset - member_base);
                         }
                      } else {
                         fprintf(fp, " /* %s + %uB */", ctx->ssym_24.symbols[i].name.string_data, internal_offset);
@@ -783,8 +783,8 @@ va_print_src(FILE *fp, unsigned type, unsigned value, unsigned size, unsigned fa
          }
          if (!matched_meta) {
             // pair_index is actually not the binding id, but the symbol index
-            if (pair_index < ctx->ssym_43.count)
-                fprintf(fp, " /* @%s */", ctx->ssym_43.symbols[pair_index].name.string_data);
+            // if (pair_index < ctx->ssym_43.count)
+                // fprintf(fp, " /* @%s */", ctx->ssym_43.symbols[pair_index].name.string_data);
          }
       }
    } else {

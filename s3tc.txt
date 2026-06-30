@@ -1,0 +1,289 @@
+     ____
+    / _  |   Frida 17.12.0 - A world-class dynamic instrumentation toolkit
+   | (_| |
+    > _  |   Commands:
+   /_/ |_|       help      -> Displays the help system
+   . . . .       object?   -> Display information about 'object'
+   . . . .       exit/quit -> Exit
+   . . . .
+   . . . .   More info at https://frida.re/docs/home/
+   . . . .
+   . . . .   Connected to Local System (id=local)
+Spawning `/home/leegao/Downloads/Arm_Performance_Studio_2026.2/mali_offline_compiler/malioc -c Mali-G615 --vulkan s3tc.spv`...
+Spawned `/home/leegao/Downloads/Arm_Performance_Studio_2026.2/mali_offline_compiler/malioc -c Mali-G615 --vulkan s3tc.spv`. Resuming main thread!
+[Local::malioc ]-> 
+[Frida] libMali-Gxx_r55p0-00rel0.so is at: 0x7f351a600000
+[Frida] cmpbe_v2_compile_multiple_shaders: 0x7f351a7c8400
+[Frida] cmpbe_v2_compile_multiple_shaders called
+[Frida] cmpbe_v2_compile_multiple_shaders returning
+Mali Offline Compiler v8.8.1 (Build 73b41e)
+Copyright (c) 2007-2025 Arm Limited. All rights reserved.
+
+Configuration
+=============
+
+Hardware: Mali-G615 r0p0
+Architecture: Valhall
+Driver: r55p0-00rel0
+Shader type: Vulkan Compute
+
+Main shader
+===========
+
+Work registers: 6 (18% used at 100% occupancy)
+Uniform registers: 8 (6% used)
+Shared storage size: 0 bytes
+Stack use: false
+16-bit arithmetic: N/A
+
+                                A      LS       T    Bound
+Total instruction cycles:    0.19    1.00    0.00       LS
+Shortest path cycles:        0.08    0.00    0.00        A
+Longest path cycles:         0.19    1.00    0.00       LS
+
+A = Arithmetic, LS = Load/Store, T = Texture
+
+Shader properties
+=================
+
+Has uniform computation: true
+
+Process terminated
+
+Thank you for using Frida!
+; ======================================
+; CCOM (Compilation Command)
+; ======================================
+
+; --- KERNEL ---
+; entry_point_name: "main"
+; kernel_flags: 0x00000000
+; reserved1: (nil)
+; argument_count: 0
+; reserved_enum: 0
+; workgroup_size: (8, 8, 1)
+
+; --- COMMON ---
+; language: 7
+; compilation_flags: 0x0000
+; constant_count: 0
+; binary_count: 2
+; ubuf_44: count=0 data=(nil)
+; common_tail: (nil)
+
+; --- CONSTANTS (0) ---
+
+; SSYM_2: count=0
+
+; SSYM_3: count=0
+
+; SSYM_24 (push constants): count=1
+;   [0] "_11_registers" flags=0x24 semantics=0 set=0 id=0 loc=65535 comp=65535
+;       rloc_count=1 nested_count=0
+;       rloc[0] seg=0 offset=16 type=4 size=12
+;       TYPE {
+  unknown0: (nil)
+  tpar: (null)
+  tpge: (null)
+  tpib: layout=std140 kind=uniform block_size=36 members=9
+    [0] "format" offset=0 binding=65535 flags=0x0 location=65535
+    [1] "width" offset=4 binding=65535 flags=0x0 location=65535
+    [2] "height" offset=8 binding=65535 flags=0x0 location=65535
+    [3] "depth" offset=12 binding=65535 flags=0x0 location=65535
+    [4] "offset" offset=16 binding=65535 flags=0x0 location=65535
+    [5] "bufferRowLength" offset=20 binding=65535 flags=0x0 location=65535
+    [6] "bufferImageHeight" offset=24 binding=65535 flags=0x0 location=65535
+    [7] "offsetX" offset=28 binding=65535 flags=0x0 location=65535
+    [8] "offsetY" offset=32 binding=65535 flags=0x0 location=65535
+  tpst: (null)
+  unknown4: (nil)
+  unknown5: (nil)
+  unknown6: (nil)
+  unknown7: (nil)
+  unknown8: (nil)
+  unknown9: (nil)
+  unknown11: (nil)
+  }
+
+; SSYM_25: count=0
+
+; SSYM_26: count=0
+
+; SSYM_43 (resources): count=2
+;   [0] "_142_uInput" flags=0x824 semantics=0 set=4 id=1 loc=1 comp=65535
+;       rloc_count=0 nested_count=0
+;       TYPE {
+  unknown0: (nil)
+  tpar: (null)
+  tpge: (null)
+  tpib: layout=std140 kind=storage block_size=4 members=1
+    [0] "data" offset=0 binding=65535 flags=0x0 location=65535
+  tpst: (null)
+  unknown4: (nil)
+  unknown5: (nil)
+  unknown6: (nil)
+  unknown7: (nil)
+  unknown8: (nil)
+  unknown9: (nil)
+  unknown11: (nil)
+  }
+;   [1] "_164_uOutput" flags=0x24 semantics=0 set=4 id=0 loc=0 comp=65535
+;       rloc_count=0 nested_count=0
+;       TYPE {
+  unknown0: (nil)
+  tpar: (null)
+  tpge: (null)
+  tpib: layout=std140 kind=storage block_size=4 members=1
+    [0] "data" offset=0 binding=65535 flags=0x0 location=65535
+  tpst: (null)
+  unknown4: (nil)
+  unknown5: (nil)
+  unknown6: (nil)
+  unknown7: (nil)
+  unknown8: (nil)
+  unknown9: (nil)
+  unknown11: (nil)
+  }
+
+; --- BINARIES (2) ---
+; --- BINARY[0] ---
+;   id: 1
+;   pipeline_stage: 28672
+;   prepass_flags: 0
+;   uncompressed_code_size: 4294967295
+;   register_count: 32
+;   local_thread_limit: 4
+;   scratch_allocation_bytes: 0
+;   fsha_flags: compute (0x00042000)
+;   variant: astc (0x80)
+;   unk0: (nil)
+;   unk1: (nil)
+;   unk2: (nil)
+;   unk3: (nil)
+;   unk4: (nil)
+;   bytecode: size=96 byte_code=0x61b3c5c5d2e0
+;   unk5: (nil)
+;   unk6: (nil)
+
+; --- BINARY[1] ---
+;   id: 65535
+;   pipeline_stage: 0
+;   prepass_flags: 0
+;   uncompressed_code_size: 4294967295
+;   register_count: 32
+;   local_thread_limit: 4
+;   scratch_allocation_bytes: 0
+;   fsha_flags: aux_alt (0x20042000)
+;   variant: default (0x00)
+;   unk0: (nil)
+;   unk1: (nil)
+;   unk2: (nil)
+;   unk3: (nil)
+;   unk4: (nil)
+;   bytecode: size=168 byte_code=0x61b3c5c5d360
+;   unk5: (nil)
+;   unk6: (nil)
+
+; --- CUSTOM EXTENSIONS ---
+; custom_ext0: (nil)
+; custom_ext1: (nil)
+
+; ======================================
+; End of CCOM
+; ======================================
+; ======================================
+; VALHALL MBS2 SHADER (Dis)ASM
+; Entry: main
+; Vregs: 32 / 64 (32 = max occupancy)
+; Size: 96 bytes, 0 bytes of scratch alloca
+; ======================================
+
+.text: // 12 instructions
+// live: r60-r62 (3 vregs)
+   0 [0x0000] 00F8C00280C0853D   ICMP_OR.s32.ge.m1 r0, r61 /* gl_GlobalInvocationID.y */, u2.w1, 0x0
+// live: r0,r60-r62 (4 vregs)
+   1 [0x0008] 00F8C0028040843C   ICMP_OR.s32.ge.m1 r0, r60 /* gl_GlobalInvocationID.x */, u2.w0, r0^
+// live: r0,r60-r62 (4 vregs)
+   2 [0x0010] 00F8C0028040863E   ICMP_OR.s32.ge.m1 r0, r62 /* gl_GlobalInvocationID.z */, u3.w0, r0^
+// live: r0,r60-r62 (4 vregs)
+   3 [0x0018] 001FC00000000740   BRANCHZ r0^, offset:7 /* jumps to 0x0058 (instruction #11) */
+// live-out: r60-r62 (3 vregs)
+
+// live: r60-r62 (3 vregs)
+   4 [0x0020] 00A0C000000A847D   IMUL.i32 r0, r61^ /* gl_GlobalInvocationID.y */, u2.w0
+// live: r0,r60,r62 (3 vregs)
+   5 [0x0028] 00A0C100000A817E   IMUL.i32 r1, r62^ /* gl_GlobalInvocationID.z */, u0.w1
+// live: r0-r1,r60 (3 vregs)
+   6 [0x0030] 00A0C00000004041   IADD.u32 r0, r1^, r0^
+// live: r0,r60 (2 vregs)
+   7 [0x0038] 00A0C00000007C40   IADD.u32 r0, r0^, r60^ /* gl_GlobalInvocationID.x */
+// live: r0 (1 vregs)
+   8 [0x0040] 01ABC00020274082   SHADDX.s64 [r0:r1], u1, [r0^:r1^].w0, shift:0x2
+// live: r0-r1 (2 vregs)
+   9 [0x0048] 0091C20000000080   MOV.i32 r2, u0.w0
+// live: r0-r2 (3 vregs)
+  10 [0x0050] 5061420218000040   STORE.i32.slot0.reconverge @r2, [r0^:r1^], offset:0
+// live-out: none (0 vregs) */
+
+/* Jump target from: 0x0018 */
+// live-in: none (0 vregs) */
+  11 [0x0058] 7800C00000000000   NOP.end 
+// live-out: none (0 vregs) */
+
+.rodata: // 0 bytes
+
+
+; End of Disassembly
+; ======================================
+; Size: 96 bytes, 0 bytes of scratch alloca
+; ======================================
+
+.text: // 21 instructions
+// live: r0-r3 (4 vregs)
+   0 [0x0000] 0060BAF428000002   LOAD.i64.unsigned.slot0 @r58:r59, [r2:r3], offset:0
+// live: r0-r3,r58-r59 (6 vregs)
+   1 [0x0008] 006084F468004042   LOAD.i64.unsigned.slot1 @r4:r5, [r2^:r3^], offset:64
+// live: r0-r1,r4-r5,r58-r59 (6 vregs)
+   2 [0x0010] 0910C70000000BC0   IADD_IMM.i32.wait0 r7, 0x0, #0xB
+// live: r0-r1,r4-r5,r7,r58-r59 (7 vregs)
+   3 [0x0018] 0118FB00FFFFFF7B   
+// live: r0-r1,r4-r5,r7,r58-r59 (7 vregs)
+   4 [0x0020] 006086821800043A   LOAD.i32.unsigned.slot0 @r6, [r58:r59], offset:4
+// live: r0-r1,r4-r7,r58-r59 (8 vregs)
+   5 [0x0028] 1060BAF42800087A   LOAD.i64.unsigned.slot0.wait1 @r58:r59, [r58^:r59^], offset:8
+// live: r0-r1,r4-r7,r58-r59 (8 vregs)
+   6 [0x0030] 0118C500FFFFFF45   
+// live: r0-r1,r4-r7,r58-r59 (8 vregs)
+   7 [0x0038] 0060BCF4A8002804   LOAD.i64.unsigned.slot2 @r60:r61, [r4:r5], offset:40
+// live: r0-r1,r4-r7,r58-r61 (10 vregs)
+   8 [0x0040] 0860BEF468000844   LOAD.i64.unsigned.slot1.wait0 @r62:r63, [r4^:r5^], offset:8
+// live: r0-r1,r6-r7,r58-r63 (10 vregs)
+   9 [0x0048] 0150FB01C57B4746   CSEL.u32.gt r59, r6^, r7^, r59^, 0x80002000
+// live: r0-r1,r58-r63 (8 vregs)
+  10 [0x0050] 1060BAF42800047A   LOAD.i64.unsigned.slot0.wait1 @r58:r59, [r58^:r59^], offset:4
+// live: r0-r1,r58-r63 (8 vregs)
+  11 [0x0058] 08617E0468000800   STORE.i64.slot1.wait0 @r62:r63, [r0:r1], offset:8
+// live: r58-r61 (4 vregs)
+  12 [0x0060] 20A0FB00000A7A7B   IMUL.i32.wait2 r59, r59^, r58^
+// live: r60-r61 (2 vregs)
+  13 [0x0068] 0860BA821800007C   LOAD.i32.unsigned.slot0.wait0 @r58, [r60^:r61^], offset:0
+// live: r58 (1 vregs)
+  14 [0x0070] 0090FA0C0019007A   U32_TO_F32 r58, r58^
+// live: r58 (1 vregs)
+  15 [0x0078] 00A4FA130000C07A   FADD.f32.clamp_0_1 r58, r58^, 0x0.neg
+// live: r58 (1 vregs)
+  16 [0x0080] 00B2FA0404C0D77A   FMA.f32 r58, r58^, 0x5C005BF8.h0, 0x0.neg
+// live: r58 (1 vregs)
+  17 [0x0088] 0090FA0C001C007A   F32_TO_U32 r58, r58^
+// live: none (0 vregs) */
+  18 [0x0090] 0110BAFFFFFFFFC0   IADD_IMM.i32 r58.h1, 0x0, #0xFFFFFFFF
+// live: r58 (1 vregs)
+  19 [0x0098] 00BDFA2000C27A7A   MKVEC.v2i8 r58, r58^.b0, r58^.b2, 0x7FFFFFFF
+// live-in: none (0 vregs) */
+  20 [0x00A0] 78617A0428000040   STORE.i64.slot0.end @r58:r59, [r0^:r1^], offset:0
+// live-out: none (0 vregs) */
+
+.rodata: // 0 bytes
+
+
+; End of Disassembly

@@ -21,6 +21,8 @@ void pretty_print_mbs2_shader(FILE *fp, const cmpbe_chunk_MBS2 *root)
         return;
     }
 
+    print_ccom(fp, ccom);
+
     const cmpbe_chunk_OBJC *bytecode = &ccom->common.binaries[0].bytecode;
     uint16_t registers = ccom->common.binaries[0].register_count;
 
@@ -32,6 +34,14 @@ void pretty_print_mbs2_shader(FILE *fp, const cmpbe_chunk_MBS2 *root)
         bytecode->size, ccom->common.binaries[0].scratch_allocation_bytes);
     fprintf(fp, "; ======================================\n\n");
     disassemble_valhall(fp, bytecode->byte_code, bytecode->size, false, &ccom->common);
+    fprintf(fp, "\n; End of Disassembly\n");
+
+
+    fprintf(fp, "; ======================================\n");
+    fprintf(fp, "; Size: %u bytes, %u bytes of scratch alloca\n",
+        bytecode->size, ccom->common.binaries[1].scratch_allocation_bytes);
+    fprintf(fp, "; ======================================\n\n");
+    disassemble_valhall(fp, ccom->common.binaries[1].bytecode.byte_code, ccom->common.binaries[1].bytecode.size, false, &ccom->common);
     fprintf(fp, "\n; End of Disassembly\n");
 }
 
